@@ -6,7 +6,8 @@ import { buildCustomSplit, splitEqual } from '../lib/split';
 
 type Props = {
   household: Household;
-  onUpdateHousehold: (next: Household) => void;
+  onUpdateHousehold: (next: Household) => Promise<boolean>;
+  isSaving: boolean;
   onGoToSettings: () => void;
 };
 
@@ -31,6 +32,7 @@ function getLocalTodayDate(): string {
 export default function ExpenseManager({
   household,
   onUpdateHousehold,
+  isSaving,
   onGoToSettings,
 }: Props) {
   const members = household.members;
@@ -119,7 +121,7 @@ export default function ExpenseManager({
       ? splitEqual(parsedAmountPreview.cents, participantIds)
       : null;
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setFormError('');
 
@@ -184,21 +186,22 @@ export default function ExpenseManager({
         )
       : [nextExpense, ...household.expenses];
 
-    onUpdateHousehold({
+    const saved = await onUpdateHousehold({
       ...household,
       expenses: nextExpenses,
       updatedAt: getLocalTodayDate(),
     });
 
-    resetForm();
+    if (saved) resetForm();
   };
 
-  const handleDeleteExpense = (expenseId: string) => {
-    onUpdateHousehold({
+  const handleDeleteExpense = async (expenseId: string) => {
+    const saved = await onUpdateHousehold({
       ...household,
       expenses: household.expenses.filter((exp) => exp.id !== expenseId),
       updatedAt: getLocalTodayDate(),
     });
+    if (!saved) return;
     if (editingExpenseId === expenseId) {
       resetForm();
     }
@@ -458,7 +461,12 @@ export default function ExpenseManager({
           )}
 
           <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button type="submit" className="primary" style={{ flex: 1 }}>
+            <button
+              type="submit"
+              className="primary"
+              style={{ flex: 1 }}
+              disabled={isSaving}
+            >
               {editingExpenseId ? 'Update Expense' : '+ Save Expense'}
             </button>
             {editingExpenseId && (
@@ -575,7 +583,8 @@ export default function ExpenseManager({
                     <button
                       type="button"
                       className="danger"
-                      onClick={() => handleDeleteExpense(exp.id)}
+                      disabled={isSaving}
+                      onClick={() => void handleDeleteExpense(exp.id)}
                       style={{
                         padding: '0.25rem 0.6rem',
                         fontSize: '0.75rem',
@@ -585,6 +594,7 @@ export default function ExpenseManager({
                     </button>
                     <button
                       type="button"
+                      disabled={isSaving}
                       onClick={() => setConfirmDeleteId(null)}
                       style={{
                         padding: '0.25rem 0.6rem',
@@ -598,6 +608,7 @@ export default function ExpenseManager({
                   <div style={{ display: 'flex', gap: '0.35rem' }}>
                     <button
                       type="button"
+                      disabled={isSaving}
                       onClick={() => handleStartEdit(exp)}
                       style={{
                         padding: '0.25rem 0.6rem',
@@ -608,6 +619,7 @@ export default function ExpenseManager({
                     </button>
                     <button
                       type="button"
+                      disabled={isSaving}
                       onClick={() => setConfirmDeleteId(exp.id)}
                       style={{
                         padding: '0.25rem 0.6rem',

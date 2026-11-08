@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Household } from './types';
 import HouseholdSettings from './components/HouseholdSettings';
 import ExpenseManager from './components/ExpenseManager';
+import RepaymentManager from './components/RepaymentManager';
 import { formatMoney } from './lib/money';
+import { loadHousehold, saveHousehold } from './lib/storage';
 import {
   calculateBalances,
   calculateTotalSpending,
@@ -102,7 +104,111 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('overview');
-  const [household, setHousehold] = useState<Household>(DEMO_HOUSEHOLD);
+  const [household, setHousehold] = useState<Household | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [storageError, setStorageError] = useState('');
+  const [failedNextState, setFailedNextState] = useState<Household | null>(null);
+  const savingRef = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const initialize = async () => {
+      try {
+        const savedHousehold = await loadHousehold();
+        if (cancelled) return;
+        if (savedHousehold) {
+          setHousehold(savedHousehold);
+        } else {
+          try {
+            await saveHousehold(DEMO_HOUSEHOLD);
+            if (!cancelled) setHousehold(DEMO_HOUSEHOLD);
+          } catch (error) {
+            if (!cancelled) {
+              setFailedNextState(DEMO_HOUSEHOLD);
+              setStorageError(
+                `Could not save the initial household: ${getErrorMessage(error)}`,
+              );
+            }
+          }
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setStorageError(
+            `Could not load your saved household: ${getErrorMessage(error)}`,
+          );
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    };
+    void initialize();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const commitHousehold = async (nextState: Household): Promise<boolean> => {
+    if (savingRef.current) return false;
+    savingRef.current = true;
+    setIsSaving(true);
+    setStorageError('');
+    setFailedNextState(null);
+    try {
+      await saveHousehold(nextState);
+      setHousehold(nextState);
+      return true;
+    } catch (error) {
+      setFailedNextState(nextState);
+      setStorageError(`Could not save changes: ${getErrorMessage(error)}`);
+      return false;
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
+    }
+  };
+
+  const retrySave = async () => {
+    if (failedNextState) {
+      const retryState = failedNextState;
+      await commitHousehold(retryState);
+      return;
+    }
+    setStorageError('');
+    setIsLoading(true);
+    try {
+      const savedHousehold = await loadHousehold();
+      if (savedHousehold) {
+        setHousehold(savedHousehold);
+      } else {
+        const initialHousehold = DEMO_HOUSEHOLD;
+        await saveHousehold(initialHousehold);
+        setHousehold(initialHousehold);
+      }
+    } catch (error) {
+      setStorageError(
+        `Could not load your saved household: ${getErrorMessage(error)}`,
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (isLoading || household === null) {
+    return (
+      <div className="app-shell">
+        <div className="card" role="status" aria-live="polite">
+          <h2>{isLoading ? 'Loading your household…' : 'Storage unavailable'}</h2>
+          {storageError && <p className="amount-neg">{storageError}</p>}
+          {!isLoading && storageError && (
+            <button type="button" className="primary" onClick={retrySave}>
+              Retry
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   const hasMembers = household.members.length > 0;
   const totalSpendingCents = calculateTotalSpending(household);
@@ -157,6 +263,25 @@ export default function App() {
       </header>
 
       <main>
+        {storageError && (
+          <div
+            className="card"
+            role="alert"
+            style={{ borderColor: 'var(--negative)', marginBottom: '1rem' }}
+          >
+            <p className="amount-neg" style={{ marginTop: 0 }}>
+              {storageError}
+            </p>
+            <button
+              type="button"
+              className="primary"
+              disabled={isSaving}
+              onClick={retrySave}
+            >
+              Retry
+            </button>
+          </div>
+        )}
         {activeTab === 'overview' && (
           <section>
             {/* Cyan Gradient Hero Card */}
@@ -412,49 +537,27 @@ export default function App() {
         {activeTab === 'expenses' && (
           <ExpenseManager
             household={household}
-            onUpdateHousehold={setHousehold}
+            onUpdateHousehold={commitHousehold}
+            isSaving={isSaving}
             onGoToSettings={() => setActiveTab('settings')}
           />
         )}
 
         {activeTab === 'repayments' && (
-          <section className="stack">
-            <div className="card">
-              <h2>Suggested Repayments</h2>
-              {suggestedTransfers.length === 0 ? (
-                <p className="empty-state">
-                  No repayments needed right now.
-                </p>
-              ) : (
-                <div className="tx-list">
-                  {suggestedTransfers.map((t) => (
-                    <div key={`${t.fromId}-${t.toId}`} className="tx-row">
-                      <div className="tx-left">
-                        <div className="tx-avatar">💸</div>
-                        <div className="tx-info">
-                          <p className="tx-title">
-                            {t.fromName} pays {t.toName}
-                          </p>
-                          <div className="tx-sub">Recommended transfer</div>
-                        </div>
-                      </div>
-                      <strong className="amount-pos">
-                        {formatMoney(t.amountCents)}
-                      </strong>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </section>
+          <RepaymentManager
+            household={household}
+            onUpdateHousehold={commitHousehold}
+            isSaving={isSaving}
+          />
         )}
 
         {activeTab === 'settings' && (
           <HouseholdSettings
             household={household}
-            onUpdateHousehold={setHousehold}
-            onLoadDemo={() => setHousehold(DEMO_HOUSEHOLD)}
-            onResetEmpty={() => setHousehold(createEmptyHousehold())}
+            onUpdateHousehold={commitHousehold}
+            onLoadDemo={() => commitHousehold(DEMO_HOUSEHOLD)}
+            onResetEmpty={() => commitHousehold(createEmptyHousehold())}
+            isSaving={isSaving}
           />
         )}
       </main>
@@ -522,4 +625,8 @@ export default function App() {
       </div>
     </div>
   );
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Unknown storage error.';
 }
