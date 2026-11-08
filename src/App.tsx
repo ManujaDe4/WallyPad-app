@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import type { Household } from './types';
+import HouseholdSettings from './components/HouseholdSettings';
 
 type Tab = 'overview' | 'expenses' | 'repayments' | 'settings';
 
-const SAMPLE_HOUSEHOLD: Household = {
+const DEMO_HOUSEHOLD: Household = {
   id: 'demo-house-1',
   name: 'Colombo Student Flat',
   currency: 'LKR',
@@ -60,11 +61,17 @@ const SAMPLE_HOUSEHOLD: Household = {
   repayments: [],
 };
 
-const SAMPLE_BALANCES = [
-  { memberId: 'm1', name: 'Manuja', balanceCents: 130000 },
-  { memberId: 'm2', name: 'Nimal', balanceCents: -20000 },
-  { memberId: 'm3', name: 'Kavindu', balanceCents: -110000 },
-];
+function createEmptyHousehold(): Household {
+  return {
+    id: crypto.randomUUID(),
+    name: 'My Household',
+    currency: 'LKR',
+    members: [],
+    expenses: [],
+    repayments: [],
+    updatedAt: new Date().toISOString().slice(0, 10),
+  };
+}
 
 function formatLKR(cents: number): string {
   const rupees = cents / 100;
@@ -77,13 +84,32 @@ function formatLKR(cents: number): string {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('overview');
-  const [showEmptyState, setShowEmptyState] = useState(false);
+  const [household, setHousehold] = useState<Household>(DEMO_HOUSEHOLD);
 
-  const household = SAMPLE_HOUSEHOLD;
-  const expenses = showEmptyState ? [] : household.expenses;
+  const hasMembers = household.members.length > 0;
 
   const getMemberName = (id: string) =>
     household.members.find((m) => m.id === id)?.name ?? 'Unknown';
+
+  // Simple balance calculation from current state (expanded into src/lib in Session 5)
+  const totalSpendingCents = household.expenses.reduce(
+    (sum, exp) => sum + exp.amountCents,
+    0
+  );
+
+  const memberBalances = household.members.map((member) => {
+    let balanceCents = 0;
+    for (const exp of household.expenses) {
+      if (exp.paidById === member.id) {
+        balanceCents += exp.amountCents;
+      }
+      const share = exp.shares.find((s) => s.memberId === member.id);
+      if (share) {
+        balanceCents -= share.amountCents;
+      }
+    }
+    return { memberId: member.id, name: member.name, balanceCents };
+  });
 
   return (
     <div className="app-shell">
@@ -94,12 +120,7 @@ export default function App() {
         </div>
         <div className="row-between">
           <span className="badge">{household.currency}</span>
-          <button
-            type="button"
-            onClick={() => setShowEmptyState((prev) => !prev)}
-          >
-            {showEmptyState ? 'Show Demo Data' : 'Preview Empty State'}
-          </button>
+          <span className="badge">{household.members.length} Members</span>
         </div>
       </header>
 
@@ -122,41 +143,68 @@ export default function App() {
             <div className="card">
               <h2>Total Household Spending</h2>
               <p style={{ fontSize: '1.5rem', fontWeight: 700, margin: 0 }}>
-                {showEmptyState ? formatLKR(0) : formatLKR(510000)}
+                {formatLKR(totalSpendingCents)}
               </p>
             </div>
 
             <div className="card">
-              <h2>Member Balances</h2>
-              <div className="stack">
-                {SAMPLE_BALANCES.map((b) => {
-                  const cents = showEmptyState ? 0 : b.balanceCents;
-                  return (
+              <div className="row-between">
+                <h2>Member Balances</h2>
+                {!hasMembers && (
+                  <button
+                    type="button"
+                    className="primary"
+                    onClick={() => setActiveTab('settings')}
+                  >
+                    + Add Housemates First
+                  </button>
+                )}
+              </div>
+              {!hasMembers ? (
+                <p className="empty-state">
+                  No members in this household yet. Open Settings to add housemates.
+                </p>
+              ) : (
+                <div className="stack">
+                  {memberBalances.map((b) => (
                     <div key={b.memberId} className="row-between">
                       <span>{b.name}</span>
-                      <span className={cents > 0 ? 'amount-pos' : cents < 0 ? 'amount-neg' : ''}>
-                        {cents > 0 ? `+${formatLKR(cents)}` : formatLKR(cents)}
+                      <span
+                        className={
+                          b.balanceCents > 0
+                            ? 'amount-pos'
+                            : b.balanceCents < 0
+                              ? 'amount-neg'
+                              : ''
+                        }
+                      >
+                        {b.balanceCents > 0
+                          ? `+${formatLKR(b.balanceCents)}`
+                          : formatLKR(b.balanceCents)}
                       </span>
                     </div>
-                  );
-                })}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="card">
               <div className="row-between">
-                <h2>Suggested Repayments</h2>
-                <button type="button" className="primary" onClick={() => setActiveTab('expenses')}>
+                <h2>Quick Actions</h2>
+                <button
+                  type="button"
+                  className="primary"
+                  disabled={!hasMembers}
+                  onClick={() => setActiveTab('expenses')}
+                  style={{ opacity: hasMembers ? 1 : 0.5 }}
+                >
                   + Add Expense
                 </button>
               </div>
-              {showEmptyState ? (
-                <p className="empty-state">No repayments needed yet.</p>
-              ) : (
-                <ul style={{ margin: 0, paddingLeft: '1.2rem' }}>
-                  <li>Kavindu pays Manuja: <strong>{formatLKR(110000)}</strong></li>
-                  <li>Nimal pays Manuja: <strong>{formatLKR(20000)}</strong></li>
-                </ul>
+              {!hasMembers && (
+                <small style={{ color: 'var(--muted)' }}>
+                  Expense creation is disabled until you add at least one household member.
+                </small>
               )}
             </div>
           </section>
@@ -165,30 +213,45 @@ export default function App() {
         {activeTab === 'expenses' && (
           <section className="stack">
             <div className="card">
-              <h2>Add Expense (Preview)</h2>
-              <div className="form-group">
-                <label htmlFor="exp-title">Expense Title</label>
-                <input id="exp-title" type="text" placeholder="e.g., Groceries" />
-              </div>
-              <div className="form-group">
-                <label htmlFor="exp-amount">Amount (LKR)</label>
-                <input id="exp-amount" type="text" inputMode="decimal" placeholder="0.00" />
-              </div>
-              <button type="button" className="primary">Save Expense</button>
+              <h2>Add Expense</h2>
+              {!hasMembers ? (
+                <div className="empty-state">
+                  <p>You must add at least one member before adding an expense.</p>
+                  <button
+                    type="button"
+                    className="primary"
+                    onClick={() => setActiveTab('settings')}
+                  >
+                    Go to Settings to Add Members
+                  </button>
+                </div>
+              ) : (
+                <p style={{ color: 'var(--muted)', margin: 0 }}>
+                  Full Add/Edit/Delete expense form comes next in Session 4!
+                </p>
+              )}
             </div>
 
             <div className="card">
               <h2>Recent Expenses</h2>
-              {expenses.length === 0 ? (
+              {household.expenses.length === 0 ? (
                 <div className="empty-state">
-                  <p>No expenses recorded yet. Use the form above to add your first shared bill.</p>
+                  <p>No expenses recorded yet.</p>
                 </div>
               ) : (
                 <div className="stack">
-                  {expenses.map((exp) => (
-                    <div key={exp.id} className="row-between" style={{ borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem' }}>
+                  {household.expenses.map((exp) => (
+                    <div
+                      key={exp.id}
+                      className="row-between"
+                      style={{
+                        borderBottom: '1px solid var(--border)',
+                        paddingBottom: '0.5rem',
+                      }}
+                    >
                       <div>
-                        <strong>{exp.title}</strong> <span className="badge">{exp.category}</span>
+                        <strong>{exp.title}</strong>{' '}
+                        <span className="badge">{exp.category}</span>
                         <div style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>
                           Paid by {getMemberName(exp.paidById)} on {exp.date}
                         </div>
@@ -205,19 +268,17 @@ export default function App() {
         {activeTab === 'repayments' && (
           <section className="card">
             <h2>Record Repayment</h2>
-            <p>Suggested transfers and repayment history will be wired up here.</p>
+            <p>Suggested transfers and repayment history will be wired up in Sessions 5 & 7.</p>
           </section>
         )}
 
         {activeTab === 'settings' && (
-          <section className="card">
-            <h2>Household & Members</h2>
-            <div className="form-group">
-              <label htmlFor="member-name">Add Housemate</label>
-              <input id="member-name" type="text" placeholder="Enter member name" />
-            </div>
-            <button type="button" className="primary">Add Member</button>
-          </section>
+          <HouseholdSettings
+            household={household}
+            onUpdateHousehold={setHousehold}
+            onLoadDemo={() => setHousehold(DEMO_HOUSEHOLD)}
+            onResetEmpty={() => setHousehold(createEmptyHousehold())}
+          />
         )}
       </main>
     </div>
