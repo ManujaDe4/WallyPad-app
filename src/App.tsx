@@ -1,6 +1,13 @@
 import { useState } from 'react';
 import type { Household } from './types';
 import HouseholdSettings from './components/HouseholdSettings';
+import ExpenseManager from './components/ExpenseManager';
+import { formatMoney } from './lib/money';
+import {
+  calculateBalances,
+  calculateTotalSpending,
+  suggestRepayments,
+} from './lib/balances';
 
 type Tab = 'overview' | 'expenses' | 'repayments' | 'settings';
 
@@ -73,43 +80,14 @@ function createEmptyHousehold(): Household {
   };
 }
 
-function formatLKR(cents: number): string {
-  const rupees = cents / 100;
-  return new Intl.NumberFormat('en-LK', {
-    style: 'currency',
-    currency: 'LKR',
-    minimumFractionDigits: 2,
-  }).format(rupees);
-}
-
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [household, setHousehold] = useState<Household>(DEMO_HOUSEHOLD);
 
   const hasMembers = household.members.length > 0;
-
-  const getMemberName = (id: string) =>
-    household.members.find((m) => m.id === id)?.name ?? 'Unknown';
-
-  // Simple balance calculation from current state (expanded into src/lib in Session 5)
-  const totalSpendingCents = household.expenses.reduce(
-    (sum, exp) => sum + exp.amountCents,
-    0
-  );
-
-  const memberBalances = household.members.map((member) => {
-    let balanceCents = 0;
-    for (const exp of household.expenses) {
-      if (exp.paidById === member.id) {
-        balanceCents += exp.amountCents;
-      }
-      const share = exp.shares.find((s) => s.memberId === member.id);
-      if (share) {
-        balanceCents -= share.amountCents;
-      }
-    }
-    return { memberId: member.id, name: member.name, balanceCents };
-  });
+  const totalSpendingCents = calculateTotalSpending(household);
+  const memberBalances = calculateBalances(household);
+  const suggestedTransfers = suggestRepayments(memberBalances);
 
   return (
     <div className="app-shell">
@@ -143,7 +121,7 @@ export default function App() {
             <div className="card">
               <h2>Total Household Spending</h2>
               <p style={{ fontSize: '1.5rem', fontWeight: 700, margin: 0 }}>
-                {formatLKR(totalSpendingCents)}
+                {formatMoney(totalSpendingCents)}
               </p>
             </div>
 
@@ -167,8 +145,21 @@ export default function App() {
               ) : (
                 <div className="stack">
                   {memberBalances.map((b) => (
-                    <div key={b.memberId} className="row-between">
-                      <span>{b.name}</span>
+                    <div
+                      key={b.memberId}
+                      className="row-between"
+                      style={{
+                        borderBottom: '1px solid var(--border)',
+                        paddingBottom: '0.5rem',
+                      }}
+                    >
+                      <div>
+                        <strong>{b.name}</strong>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
+                          Paid {formatMoney(b.paidCents)} • Share{' '}
+                          {formatMoney(b.owedSharesCents)}
+                        </div>
+                      </div>
                       <span
                         className={
                           b.balanceCents > 0
@@ -179,8 +170,8 @@ export default function App() {
                         }
                       >
                         {b.balanceCents > 0
-                          ? `+${formatLKR(b.balanceCents)}`
-                          : formatLKR(b.balanceCents)}
+                          ? `+${formatMoney(b.balanceCents)}`
+                          : formatMoney(b.balanceCents)}
                       </span>
                     </div>
                   ))}
@@ -190,7 +181,7 @@ export default function App() {
 
             <div className="card">
               <div className="row-between">
-                <h2>Quick Actions</h2>
+                <h2>Suggested Repayments</h2>
                 <button
                   type="button"
                   className="primary"
@@ -201,74 +192,38 @@ export default function App() {
                   + Add Expense
                 </button>
               </div>
-              {!hasMembers && (
-                <small style={{ color: 'var(--muted)' }}>
-                  Expense creation is disabled until you add at least one household member.
-                </small>
+              {suggestedTransfers.length === 0 ? (
+                <p className="empty-state">
+                  All settled up! No repayments needed right now.
+                </p>
+              ) : (
+                <ul style={{ margin: '0.5rem 0 0', paddingLeft: '1.2rem' }}>
+                  {suggestedTransfers.map((t) => (
+                    <li key={`${t.fromId}-${t.toId}`} style={{ marginBottom: '0.35rem' }}>
+                      <strong>{t.fromName}</strong> → <strong>{t.toName}</strong>:{' '}
+                      <strong>{formatMoney(t.amountCents)}</strong>
+                    </li>
+                  ))}
+                </ul>
               )}
             </div>
           </section>
         )}
 
         {activeTab === 'expenses' && (
-          <section className="stack">
-            <div className="card">
-              <h2>Add Expense</h2>
-              {!hasMembers ? (
-                <div className="empty-state">
-                  <p>You must add at least one member before adding an expense.</p>
-                  <button
-                    type="button"
-                    className="primary"
-                    onClick={() => setActiveTab('settings')}
-                  >
-                    Go to Settings to Add Members
-                  </button>
-                </div>
-              ) : (
-                <p style={{ color: 'var(--muted)', margin: 0 }}>
-                  Full Add/Edit/Delete expense form comes next in Session 4!
-                </p>
-              )}
-            </div>
-
-            <div className="card">
-              <h2>Recent Expenses</h2>
-              {household.expenses.length === 0 ? (
-                <div className="empty-state">
-                  <p>No expenses recorded yet.</p>
-                </div>
-              ) : (
-                <div className="stack">
-                  {household.expenses.map((exp) => (
-                    <div
-                      key={exp.id}
-                      className="row-between"
-                      style={{
-                        borderBottom: '1px solid var(--border)',
-                        paddingBottom: '0.5rem',
-                      }}
-                    >
-                      <div>
-                        <strong>{exp.title}</strong>{' '}
-                        <span className="badge">{exp.category}</span>
-                        <div style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>
-                          Paid by {getMemberName(exp.paidById)} on {exp.date}
-                        </div>
-                      </div>
-                      <strong>{formatLKR(exp.amountCents)}</strong>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </section>
+          <ExpenseManager
+            household={household}
+            onUpdateHousehold={setHousehold}
+            onGoToSettings={() => setActiveTab('settings')}
+          />
         )}
 
         {activeTab === 'repayments' && (
           <section className="card">
             <h2>Record Repayment</h2>
-            <p>Suggested transfers and repayment history will be wired up in Sessions 5 & 7.</p>
+            <p>
+              Persistence (Session 6) and Repayment recording (Session 7) come next!
+            </p>
           </section>
         )}
 
