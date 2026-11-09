@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useRegisterSW } from 'virtual:pwa-register/react';
 import type { Household } from './types';
 import HouseholdSettings from './components/HouseholdSettings';
 import ExpenseManager from './components/ExpenseManager';
@@ -103,6 +104,10 @@ const CATEGORY_COLORS: Record<string, string> = {
 };
 
 export default function App() {
+  const {
+    needRefresh: [needRefresh, setNeedRefresh],
+    updateServiceWorker,
+  } = useRegisterSW();
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [household, setHousehold] = useState<Household | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -263,6 +268,30 @@ export default function App() {
       </header>
 
       <main>
+        {needRefresh && (
+          <div className="update-prompt" role="status" aria-live="polite">
+            <p>
+              A new version of RoomSplit is available — Save or cancel any open
+              form before updating
+            </p>
+            <div className="update-prompt-actions">
+              <button
+                type="button"
+                className="primary"
+                onClick={() => void updateServiceWorker(true)}
+              >
+                Update Now
+              </button>
+              <button
+                type="button"
+                className="update-dismiss"
+                onClick={() => setNeedRefresh(false)}
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        )}
         {storageError && (
           <div
             className="card"

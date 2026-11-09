@@ -141,6 +141,55 @@ body {
     cursor: pointer;
 }
 
+.update-prompt {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+    padding: 0.7rem 0.8rem 0.7rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+    background: var(--surface);
+    box-shadow: var(--shadow-card);
+}
+
+.update-prompt p {
+    margin: 0;
+    color: var(--text);
+    font-size: 0.8rem;
+}
+
+.update-prompt-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-shrink: 0;
+}
+
+.update-prompt-actions .primary,
+.update-dismiss {
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--radius-pill);
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+
+.update-dismiss {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--muted);
+    cursor: pointer;
+}
+
+@media (max-width: 380px) {
+    .update-prompt {
+        align-items: flex-start;
+        flex-direction: column;
+        border-radius: var(--radius-lg);
+    }
+}
+
 /* ----------------------------------------------------------
    5. Hero Card
    ---------------------------------------------------------- */
