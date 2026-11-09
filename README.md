@@ -106,11 +106,15 @@ ledger.
 
 ### Optional Supabase Room Sync
 
-Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in the local environment
-and in the Cloudflare Pages build environment to enable cloud rooms. The
+Set `VITE_SUPABASE_URL` and either `VITE_SUPABASE_PUBLISHABLE_KEY` (recommended
+for new projects) or `VITE_SUPABASE_ANON_KEY` in the local environment and in
+the Cloudflare Pages build environment to enable cloud rooms. The
 Supabase project must provide the `roomsplit_rooms` table, the
 `fetch_room_with_pin` and `upsert_room_with_pin` RPCs, and Realtime publication
-for that table. Without these settings, RoomSplit stays in local-only mode.
+for that table. Cloudflare Pages variables are embedded at build time, so add
+them under the Pages build environment settings and trigger a new deployment
+after changing them. Without these settings, RoomSplit stays in local-only
+mode.
 
 Each Space remains stored in IndexedDB and can be edited offline. When room
 sync is enabled, changes merge by record ID and deleted record IDs are shared

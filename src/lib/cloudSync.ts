@@ -3,24 +3,52 @@ import type { Household } from '../types';
 
 let client: SupabaseClient | null = null;
 
-export function isCloudConfigured(): boolean {
-  return Boolean(
-    import.meta.env.VITE_SUPABASE_URL?.trim() &&
-    import.meta.env.VITE_SUPABASE_ANON_KEY?.trim(),
+function getSupabaseUrl(): string {
+  return import.meta.env.VITE_SUPABASE_URL?.trim() ?? '';
+}
+
+function getSupabaseKey(): string {
+  return (
+    import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim() ||
+    import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() ||
+    ''
   );
+}
+
+export function isCloudConfigured(): boolean {
+  return Boolean(getSupabaseUrl() && getSupabaseKey());
 }
 
 function getClient(): SupabaseClient {
   if (!isCloudConfigured()) {
-    throw new Error('Cloud sync is not configured for this installation.');
-  }
-  if (!client) {
-    client = createClient(
-      import.meta.env.VITE_SUPABASE_URL.trim(),
-      import.meta.env.VITE_SUPABASE_ANON_KEY.trim(),
+    throw new Error(
+      'Cloud sync is not configured. Set VITE_SUPABASE_URL and either ' +
+      'VITE_SUPABASE_PUBLISHABLE_KEY or VITE_SUPABASE_ANON_KEY, then rebuild the app.',
     );
   }
+  if (!client) {
+    const url = getSupabaseUrl();
+    const apiKey = getSupabaseKey();
+    client = createClient(url, apiKey, {
+      global: {
+        headers: { apikey: apiKey },
+      },
+    });
+  }
   return client;
+}
+
+function throwSupabaseError(error: { message: string; code?: string }): never {
+  if (/no api key found in request/i.test(error.message)) {
+    throw new Error(
+      'Supabase did not receive an API key. Check that the VITE_SUPABASE_URL ' +
+      'and VITE_SUPABASE_PUBLISHABLE_KEY (or VITE_SUPABASE_ANON_KEY) build ' +
+      'variables are set for this deployment, then rebuild and reload the app.',
+    );
+  }
+  throw new Error(
+    error.code ? `${error.message} (Supabase ${error.code})` : error.message,
+  );
 }
 
 export async function hashPin(roomCode: string, pin: string): Promise<string> {
@@ -157,7 +185,7 @@ async function fetchRoom(roomCode: string, pinHash: string): Promise<Household> 
     p_room_code: roomCode,
     p_pin_hash: pinHash,
   });
-  if (error) throw error;
+  if (error) throwSupabaseError(error);
   return householdFromResponse(data);
 }
 
@@ -171,7 +199,7 @@ async function upsertRoom(
     p_pin_hash: pinHash,
     p_payload: household,
   });
-  if (error) throw error;
+  if (error) throwSupabaseError(error);
 }
 
 export async function enableRoomSync(
