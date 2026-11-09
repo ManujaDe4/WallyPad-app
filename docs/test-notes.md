@@ -6,19 +6,13 @@ TypeScript 6.0.3; Vitest 5.1.0
 
 ## Automated results
 
-Vitest passed all 11 tests:
+The initial suite passed all 11 tests on 2026-11-08. The Phase 2 suite passed
+all 16 tests on 2026-11-09, including the original ledger and backup cases plus:
 
-- Money parsing and equal splitting of LKR 100.00 across three members.
-- Rejection of custom shares above or below the total and acceptance of an
-  exact custom split.
-- Correct credit when the payer is not a split participant.
-- Page 8 demo balances and greedy repayment suggestions.
-- Partial repayment, full settlement, and unchanged total spending.
-- Balance recalculation after an expense is replaced or deleted.
-- Rejection of backup references to unknown member IDs.
-- Backup round-trip with the same ledger and derived balances.
-- Rejection of malformed, oversized, wrong-version, and invalid-amount
-  backups.
+- Inline money-expression evaluation and personal-item supermarket splits.
+- Weekly/monthly date grouping, category totals, and top-category summaries.
+- URL-safe read-only settlement snapshot round-trip.
+- AES-256-GCM encrypted backup round-trip and wrong-password rejection.
 
 Release checks:
 

@@ -2,6 +2,9 @@ import { useState } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
 import type { Household } from '../types';
 import { exportBackupFile, validateBackupJson } from '../lib/backup';
+import { centsToInputString, parseMoney } from '../lib/money';
+import { exportCsvReport, exportPdfReport } from '../lib/reports';
+import { decryptBackupJson, encryptBackupJson } from '../lib/cryptoBackup';
 
 type Props = {
   household: Household;
@@ -13,6 +16,16 @@ type Props = {
 
 const MAX_NAME_LENGTH = 80;
 type ReplacementAction = 'empty' | 'demo';
+const BUDGET_CATEGORIES = ['Groceries', 'Rent', 'Utilities', 'Other'];
+
+function getBudgetInputs(household: Household): Record<string, string> {
+  return Object.fromEntries(BUDGET_CATEGORIES.map((category) => [
+    category,
+    household.categoryBudgetsCents?.[category] === undefined
+      ? ''
+      : centsToInputString(household.categoryBudgetsCents[category]),
+  ]));
+}
 
 export default function HouseholdSettings({
   household,
@@ -36,6 +49,10 @@ export default function HouseholdSettings({
   const [restorePreview, setRestorePreview] = useState<Household | null>(null);
   const [pendingReplacement, setPendingReplacement] =
     useState<ReplacementAction | null>(null);
+  const [backupPassword, setBackupPassword] = useState('');
+  const [budgetInputs, setBudgetInputs] = useState<Record<string, string>>(
+    () => getBudgetInputs(household),
+  );
 
   if (lastHouseholdName !== household.name) {
     setLastHouseholdName(household.name);
@@ -171,12 +188,25 @@ export default function HouseholdSettings({
     setBackupError('');
     setRestorePreview(null);
     if (!file) return;
-    if (file.size > 2 * 1024 * 1024) {
-      setBackupError('Backup file must be 2 MB or smaller.');
+    if (file.size > 3 * 1024 * 1024) {
+      setBackupError('Backup file must be 3 MB or smaller.');
       return;
     }
     try {
-      const result = validateBackupJson(await file.text());
+      let rawText = await file.text();
+      let envelope: unknown;
+      try {
+        envelope = JSON.parse(rawText);
+      } catch {
+        envelope = null;
+      }
+      if (
+        typeof envelope === 'object' && envelope !== null &&
+        'format' in envelope && envelope.format === 'RoomSplitEncryptedBackup'
+      ) {
+        rawText = await decryptBackupJson(rawText, backupPassword);
+      }
+      const result = validateBackupJson(rawText);
       if (result.ok === false) {
         setBackupError(result.error);
         return;
@@ -199,7 +229,13 @@ export default function HouseholdSettings({
       pendingReplacement === 'empty'
         ? await onResetEmpty()
         : await onLoadDemo();
-    if (saved) setPendingReplacement(null);
+    if (saved) {
+      setPendingReplacement(null);
+      setBudgetInputs(getBudgetInputs({
+        ...household,
+        categoryBudgetsCents: undefined,
+      }));
+    }
   };
 
   const confirmRestore = async () => {
@@ -208,6 +244,48 @@ export default function HouseholdSettings({
     if (saved) {
       setRestorePreview(null);
       setBackupError('');
+      setBudgetInputs(getBudgetInputs(restorePreview));
+    }
+  };
+
+  const saveBudgets = async () => {
+    const budgets: Record<string, number> = {};
+    for (const category of BUDGET_CATEGORIES) {
+      const rawValue = budgetInputs[category]?.trim();
+      if (!rawValue) continue;
+      const parsed = parseMoney(rawValue, { allowZero: true });
+      if (parsed.ok === false) {
+        setBackupError(`${category} budget: ${parsed.error}`);
+        return;
+      }
+      if (parsed.cents > 0) budgets[category] = parsed.cents;
+    }
+    setBackupError('');
+    await onUpdateHousehold({
+      ...household,
+      categoryBudgetsCents: budgets,
+      updatedAt: new Date().toISOString().slice(0, 10),
+    });
+  };
+
+  const exportEncryptedBackup = async () => {
+    try {
+      const content = await encryptBackupJson(JSON.stringify({
+        app: 'RoomSplit',
+        schemaVersion: 1,
+        exportedAt: new Date().toISOString(),
+        household,
+      }, null, 2), backupPassword);
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(new Blob([content], { type: 'application/json' }));
+      link.href = url;
+      link.download = `roomsplit-encrypted-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    } catch (error) {
+      setBackupError(error instanceof Error ? error.message : 'Could not encrypt backup.');
     }
   };
 
@@ -392,7 +470,45 @@ export default function HouseholdSettings({
       )}
 
       <section className="card">
+        <h2>Monthly Category Budgets <span className="tx-sub">(Optional)</span></h2>
+        <p className="tx-sub">Set monthly spending caps to track category utilization on Home.</p>
+        <div className="budget-input-grid">
+          {BUDGET_CATEGORIES.map((category) => (
+            <div className="form-group" key={category}>
+              <label htmlFor={`budget-${category}`}>{category} (LKR)</label>
+              <input
+                id={`budget-${category}`}
+                type="text"
+                inputMode="decimal"
+                placeholder="No limit"
+                value={budgetInputs[category] ?? ''}
+                onChange={(event) => setBudgetInputs((previous) => ({
+                  ...previous,
+                  [category]: event.target.value,
+                }))}
+              />
+            </div>
+          ))}
+        </div>
+        <button type="button" className="primary" disabled={isSaving} onClick={() => void saveBudgets()}>
+          Save Monthly Budgets
+        </button>
+      </section>
+
+      <section className="card">
         <h2>Backup &amp; Restore</h2>
+        <div className="form-group">
+          <label htmlFor="backup-password">Optional backup password</label>
+          <input
+            id="backup-password"
+            type="password"
+            autoComplete="new-password"
+            value={backupPassword}
+            onChange={(event) => setBackupPassword(event.target.value)}
+            placeholder="Use for encrypted export or import"
+          />
+          <p className="tx-sub">Keep this password safe; encrypted backups cannot be opened without it.</p>
+        </div>
         <div className="form-group">
           <label>Export JSON Backup</label>
           <p className="tx-sub">
@@ -405,6 +521,19 @@ export default function HouseholdSettings({
           >
             Export JSON Backup
           </button>
+          <button type="button" onClick={() => void exportEncryptedBackup()} disabled={!backupPassword}>
+            🔐 Export AES-256 Encrypted Backup
+          </button>
+          <div className="export-actions">
+            <button type="button" onClick={() => {
+              try {
+                exportPdfReport(household);
+              } catch (error) {
+                setBackupError(error instanceof Error ? error.message : 'Could not open PDF report.');
+              }
+            }}>📄 Export Weekly &amp; Monthly PDF Report</button>
+            <button type="button" onClick={() => exportCsvReport(household)}>📊 Export CSV Spreadsheet</button>
+          </div>
         </div>
         <div className="form-group">
           <label htmlFor="backup-import">Import JSON Backup</label>

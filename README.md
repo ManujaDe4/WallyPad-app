@@ -36,15 +36,23 @@ expenses totaling LKR 5,100.00.
 - Record household expenses and assign who paid.
 - Split a bill equally or enter custom shares that must exactly match the
   expense total.
+- Enter simple addition/subtraction expressions and optionally deduct
+  housemates' personal items before equally splitting a supermarket bill.
 - Calculate member balances from the ledger and suggest settlements using a
   greedy repayment-matching algorithm.
 - Record repayments, review repayment history, and delete a recorded repayment
   to reverse its effect on balances.
-- Persist the household ledger in browser IndexedDB.
+- Keep multiple isolated local Spaces with selectable theme accents and
+  optional monthly category budgets.
+- Preview weekly/monthly spending, then print a detailed report to PDF or
+  export the ledger as CSV.
+- Copy a WhatsApp settlement summary or share a compact read-only settlement
+  snapshot link.
+- Persist household ledgers and Spaces in browser IndexedDB.
 - Cache the app shell and static assets with a Service Worker for offline
   reloads, and prompt users when an app update is ready.
 - Export and import JSON backups with schema, size, member-reference, date, and
-  amount validation.
+  amount validation, with optional AES-256-GCM password encryption.
 
 ## Tech Stack
 
@@ -84,8 +92,9 @@ separate balance updates becoming stale.
 
 ### Snapshot Persistence & Service Worker
 
-The household ledger is stored as a household snapshot in the `appState`
-object store of the `roomsplit-db` IndexedDB database. The Service Worker is a
+Household ledgers and Space metadata are stored in the `spaces` and `settings`
+object stores of the `roomsplit-db` IndexedDB database. The `appState` store is
+kept as a compatibility snapshot for the active Space. The Service Worker is a
 separate layer: Workbox precaches the built app shell and static assets,
 including HTML, CSS, JavaScript, and icons, so an already-loaded app can reload
 offline. The Service Worker cache does not replace or contain the household
@@ -93,12 +102,13 @@ ledger.
 
 ## Known V1 Limitations
 
-- One household is stored per browser profile and site origin. There is no
-  login, hosted ledger, or live multi-device cloud synchronization.
-- Moving a household between devices or different site origins requires
-  manually exporting and importing its JSON backup.
+- Spaces are local to one browser profile and site origin. There is no login,
+  hosted ledger, or live multi-device cloud synchronization.
+- Moving a Space between devices or different site origins requires manually
+  exporting and importing its JSON backup.
 - Local browser storage is not encrypted. Exported JSON backups contain
-  personal expense data; keep them somewhere private.
+  personal expense data unless the optional encrypted-backup export is used;
+  keep both kinds somewhere private.
 
 ## Local Development & Testing Commands
 

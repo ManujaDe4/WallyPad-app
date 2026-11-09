@@ -1,4 +1,4 @@
-import type { Expense, Household, Member, Repayment, Share } from '../types';
+import type { Expense, Household, Member, Repayment, Share, SpaceAccent } from '../types';
 
 const MAX_BACKUP_BYTES = 2 * 1024 * 1024;
 const MAX_AMOUNT_CENTS = 100_000_000;
@@ -79,6 +79,35 @@ export function validateBackupJson(rawText: string): BackupValidationResult {
     !Array.isArray(rawHousehold.repayments)
   ) {
     return validationError('Household records must be arrays.');
+  }
+  let categoryBudgetsCents: Record<string, number> | undefined;
+  if ('categoryBudgetsCents' in rawHousehold) {
+    if (!isRecord(rawHousehold.categoryBudgetsCents)) {
+      return validationError('Household category budgets are invalid.');
+    }
+    categoryBudgetsCents = {};
+    for (const [category, amount] of Object.entries(rawHousehold.categoryBudgetsCents)) {
+      if (
+        !['Groceries', 'Rent', 'Utilities', 'Other'].includes(category) ||
+        typeof amount !== 'number' ||
+        !Number.isSafeInteger(amount) ||
+        amount <= 0 ||
+        amount > MAX_AMOUNT_CENTS
+      ) {
+        return validationError('Household category budgets are invalid.');
+      }
+      categoryBudgetsCents[category] = amount;
+    }
+  }
+  let themeAccent: SpaceAccent | undefined;
+  if ('themeAccent' in rawHousehold) {
+    if (
+      rawHousehold.themeAccent !== 'cyan' &&
+      rawHousehold.themeAccent !== 'emerald' &&
+      rawHousehold.themeAccent !== 'amber' &&
+      rawHousehold.themeAccent !== 'indigo'
+    ) return validationError('Household theme accent is invalid.');
+    themeAccent = rawHousehold.themeAccent;
   }
   if (rawHousehold.members.length > 30) {
     return validationError('Backup cannot contain more than 30 members.');
@@ -256,6 +285,8 @@ export function validateBackupJson(rawText: string): BackupValidationResult {
       expenses,
       repayments,
       updatedAt: rawHousehold.updatedAt,
+      ...(categoryBudgetsCents ? { categoryBudgetsCents } : {}),
+      ...(themeAccent ? { themeAccent } : {}),
     },
   };
 }

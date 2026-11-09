@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 import type { Expense, Household } from '../types';
-import { centsToInputString, formatMoney, parseMoney } from '../lib/money';
+import { centsToInputString, formatMoney } from '../lib/money';
 import { buildCustomSplit, splitEqual } from '../lib/split';
+import { buildSupermarketSplit, evaluateMoneyExpression } from '../lib/mathInput';
 
 type Props = {
   household: Household;
@@ -48,6 +49,8 @@ export default function ExpenseManager({
   );
   const [splitMode, setSplitMode] = useState<'equal' | 'custom'>('equal');
   const [customInputs, setCustomInputs] = useState<Record<string, string>>({});
+  const [deductPersonalItems, setDeductPersonalItems] = useState(false);
+  const [personalInputs, setPersonalInputs] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState('');
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -85,6 +88,8 @@ export default function ExpenseManager({
     setParticipantIds(members.map((m) => m.id));
     setSplitMode('equal');
     setCustomInputs({});
+    setDeductPersonalItems(false);
+    setPersonalInputs({});
     setFormError('');
   };
 
@@ -112,13 +117,23 @@ export default function ExpenseManager({
       customMap[share.memberId] = centsToInputString(share.amountCents);
     }
     setCustomInputs(customMap);
+    setDeductPersonalItems(false);
+    setPersonalInputs({});
     setFormError('');
   };
 
-  const parsedAmountPreview = parseMoney(amountInput);
+  const parsedAmountPreview = amountInput.trim()
+    ? evaluateMoneyExpression(amountInput)
+    : null;
   const equalPreviewResult =
-    splitMode === 'equal' && parsedAmountPreview.ok
-      ? splitEqual(parsedAmountPreview.cents, participantIds)
+    splitMode === 'equal' && parsedAmountPreview?.ok
+      ? deductPersonalItems
+        ? buildSupermarketSplit(
+            parsedAmountPreview.cents,
+            participantIds,
+            personalInputs,
+          )
+        : splitEqual(parsedAmountPreview.cents, participantIds)
       : null;
 
   const handleSubmit = async (e: FormEvent) => {
@@ -135,7 +150,7 @@ export default function ExpenseManager({
       return;
     }
 
-    const parsedAmount = parseMoney(amountInput);
+    const parsedAmount = evaluateMoneyExpression(amountInput);
     if (parsedAmount.ok === false) {
       setFormError(parsedAmount.error);
       return;
@@ -157,7 +172,13 @@ export default function ExpenseManager({
 
     const splitResult =
       splitMode === 'equal'
-        ? splitEqual(parsedAmount.cents, validParticipantIds)
+        ? deductPersonalItems
+          ? buildSupermarketSplit(
+              parsedAmount.cents,
+              validParticipantIds,
+              personalInputs,
+            )
+          : splitEqual(parsedAmount.cents, validParticipantIds)
         : buildCustomSplit(
             parsedAmount.cents,
             validParticipantIds,
@@ -221,6 +242,31 @@ export default function ExpenseManager({
     <div className="stack">
       <section className="card">
         <h2>{editingExpenseId ? 'Edit Expense' : 'New Shared Expense'}</h2>
+        {!editingExpenseId && (
+          <div className="preset-chips" aria-label="Quick-fill expense presets">
+            {[
+              { label: '⚡ CEB Electricity', title: 'CEB Electricity', category: 'Utilities' },
+              { label: '🏠 Monthly Rent', title: 'Monthly Rent', category: 'Rent' },
+              { label: '🌐 Wi-Fi', title: 'Wi-Fi', category: 'Utilities' },
+              { label: '🛒 Weekly Groceries', title: 'Weekly Groceries', category: 'Groceries' },
+            ].map((preset) => (
+              <button
+                type="button"
+                className="preset-chip"
+                key={preset.title}
+                onClick={() => {
+                  setTitle(preset.title);
+                  setCategory(preset.category);
+                  setPaidById(activePaidById);
+                  setParticipantIds(members.map((member) => member.id));
+                  setFormError('');
+                }}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Segmented Split Mode Switcher */}
         <div
@@ -277,8 +323,17 @@ export default function ExpenseManager({
                   setAmountInput(e.target.value);
                   setFormError('');
                 }}
+                onBlur={() => {
+                  const result = evaluateMoneyExpression(amountInput);
+                  if (result.ok) setAmountInput(centsToInputString(result.cents));
+                }}
                 placeholder="0.00"
               />
+              {parsedAmountPreview?.ok && (
+                <small className="amount-preview">
+                  = {formatMoney(parsedAmountPreview.cents)}
+                </small>
+              )}
             </div>
 
             <div className="form-group" style={{ flex: 1 }}>
@@ -408,6 +463,44 @@ export default function ExpenseManager({
                 ))}
               </div>
             </div>
+          )}
+
+          {splitMode === 'equal' && (
+            <details className="compact-disclosure">
+              <summary>+ Deduct personal items first?</summary>
+              <label className="inline-toggle">
+                <input
+                  type="checkbox"
+                  checked={deductPersonalItems}
+                  onChange={(event) => setDeductPersonalItems(event.target.checked)}
+                />
+                Enter each member's personal item total
+              </label>
+              {deductPersonalItems && participantIds.map((memberId) => (
+                <div className="row-between personal-item-row" key={memberId}>
+                  <label htmlFor={`personal-${memberId}`}>{getMemberName(memberId)}</label>
+                  <input
+                    id={`personal-${memberId}`}
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    value={personalInputs[memberId] ?? ''}
+                    onChange={(event) => setPersonalInputs((previous) => ({
+                      ...previous,
+                      [memberId]: event.target.value,
+                    }))}
+                  />
+                </div>
+              ))}
+              {deductPersonalItems && equalPreviewResult?.ok && (
+                <p className="tx-sub">
+                  Personal items are added to each member's equal share of the remaining total.
+                </p>
+              )}
+              {deductPersonalItems && equalPreviewResult?.ok === false && parsedAmountPreview?.ok && (
+                <p className="amount-neg" role="alert">{equalPreviewResult.error}</p>
+              )}
+            </details>
           )}
 
           {splitMode === 'custom' && participantIds.length > 0 && (

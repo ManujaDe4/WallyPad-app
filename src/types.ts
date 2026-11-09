@@ -28,6 +28,17 @@ export type Household = {
   expenses: Expense[];
   repayments: Repayment[];
   updatedAt: string;
+  categoryBudgetsCents?: Record<string, number>;
+  themeAccent?: SpaceAccent;
+};
+
+export type SpaceAccent = 'cyan' | 'emerald' | 'amber' | 'indigo';
+
+export type Space = {
+  id: string;
+  name: string;
+  accent: SpaceAccent;
+  household: Household;
 };
 
 export type Backup = {

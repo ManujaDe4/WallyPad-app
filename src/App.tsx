@@ -1,11 +1,25 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
-import type { Household } from './types';
+import type { Household, Space, SpaceAccent } from './types';
 import HouseholdSettings from './components/HouseholdSettings';
 import ExpenseManager from './components/ExpenseManager';
 import RepaymentManager from './components/RepaymentManager';
 import { formatMoney } from './lib/money';
-import { loadHousehold, saveHousehold } from './lib/storage';
+import {
+  loadActiveSpaceId,
+  loadHousehold,
+  loadSpacesIndex,
+  saveHousehold,
+  saveSpace,
+  setActiveSpaceId,
+  updateSpaceAccent,
+} from './lib/storage';
+import {
+  buildWeeklyAndMonthlySummaries,
+  decodeShareSnapshot,
+  exportPdfReport,
+  type ShareSnapshot,
+} from './lib/reports';
 import {
   calculateBalances,
   calculateTotalSpending,
@@ -102,7 +116,6 @@ const CATEGORY_COLORS: Record<string, string> = {
   Rent: '#2563EB',
   Other: '#7C3AED',
 };
-
 export default function App() {
   const {
     needRefresh: [needRefresh, setNeedRefresh],
@@ -114,27 +127,38 @@ export default function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [storageError, setStorageError] = useState('');
   const [failedNextState, setFailedNextState] = useState<Household | null>(null);
+  const [spaces, setSpaces] = useState<Space[]>([]);
+  const [activeSpaceId, setActiveSpaceIdState] = useState('');
+  const [spacesOpen, setSpacesOpen] = useState(false);
+  const [snapshot, setSnapshot] = useState<ShareSnapshot | null>(null);
+  const [snapshotError, setSnapshotError] = useState('');
+  const [periodFilter, setPeriodFilter] = useState<'all' | 'month' | 'week'>('all');
   const savingRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
     const initialize = async () => {
       try {
-        const savedHousehold = await loadHousehold();
+        let spacesIndex = await loadSpacesIndex();
+        let savedHousehold = await loadHousehold();
         if (cancelled) return;
-        if (savedHousehold) {
-          setHousehold(savedHousehold);
-        } else {
+        if (!savedHousehold) {
+          savedHousehold = DEMO_HOUSEHOLD;
+          await saveHousehold(savedHousehold);
+          spacesIndex = await loadSpacesIndex();
+        }
+        const selectedSpaceId = await loadActiveSpaceId();
+        if (cancelled) return;
+        const activeSpace = spacesIndex.find((space) => space.id === selectedSpaceId) ?? spacesIndex[0];
+        setSpaces(spacesIndex);
+        setActiveSpaceIdState(activeSpace?.id ?? '');
+        setHousehold(activeSpace?.household ?? savedHousehold);
+        const snapshotParam = new URLSearchParams(window.location.search).get('snapshot');
+        if (snapshotParam) {
           try {
-            await saveHousehold(DEMO_HOUSEHOLD);
-            if (!cancelled) setHousehold(DEMO_HOUSEHOLD);
+            setSnapshot(decodeShareSnapshot(snapshotParam));
           } catch (error) {
-            if (!cancelled) {
-              setFailedNextState(DEMO_HOUSEHOLD);
-              setStorageError(
-                `Could not save the initial household: ${getErrorMessage(error)}`,
-              );
-            }
+            setSnapshotError(getErrorMessage(error));
           }
         }
       } catch (error) {
@@ -162,6 +186,11 @@ export default function App() {
     try {
       await saveHousehold(nextState);
       setHousehold(nextState);
+      setSpaces((previous) => previous.map((space) => (
+        space.id === activeSpaceId
+          ? { ...space, name: nextState.name, household: nextState }
+          : space
+      )));
       return true;
     } catch (error) {
       setFailedNextState(nextState);
@@ -182,14 +211,17 @@ export default function App() {
     setStorageError('');
     setIsLoading(true);
     try {
-      const savedHousehold = await loadHousehold();
-      if (savedHousehold) {
-        setHousehold(savedHousehold);
-      } else {
-        const initialHousehold = DEMO_HOUSEHOLD;
-        await saveHousehold(initialHousehold);
-        setHousehold(initialHousehold);
+      let savedHousehold = await loadHousehold();
+      if (!savedHousehold) {
+        savedHousehold = DEMO_HOUSEHOLD;
+        await saveHousehold(savedHousehold);
       }
+      const spacesIndex = await loadSpacesIndex();
+      const selectedSpaceId = await loadActiveSpaceId();
+      const activeSpace = spacesIndex.find((space) => space.id === selectedSpaceId);
+      setSpaces(spacesIndex);
+      setActiveSpaceIdState(activeSpace?.id ?? '');
+      setHousehold(activeSpace?.household ?? savedHousehold);
     } catch (error) {
       setStorageError(
         `Could not load your saved household: ${getErrorMessage(error)}`,
@@ -197,6 +229,73 @@ export default function App() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const switchSpace = async (spaceId: string) => {
+    if (savingRef.current) return;
+    try {
+      await setActiveSpaceId(spaceId);
+      const next = spaces.find((space) => space.id === spaceId);
+      if (next) {
+        setActiveSpaceIdState(spaceId);
+        setHousehold(next.household);
+        setSpacesOpen(false);
+        setStorageError('');
+      }
+    } catch (error) {
+      setStorageError(`Could not switch Space: ${getErrorMessage(error)}`);
+    }
+  };
+
+  const createSpace = async () => {
+    if (savingRef.current) return;
+    const id = crypto.randomUUID();
+    const nextHousehold: Household = {
+      id,
+      name: `New Space ${spaces.length + 1}`,
+      currency: 'LKR',
+      members: [],
+      expenses: [],
+      repayments: [],
+      updatedAt: new Date().toISOString().slice(0, 10),
+    };
+    try {
+      const saved = await saveSpace({
+        id,
+        name: nextHousehold.name,
+        accent: 'cyan',
+        household: nextHousehold,
+      });
+      await setActiveSpaceId(id);
+      setSpaces((previous) => [...previous, saved]);
+      setActiveSpaceIdState(id);
+      setHousehold(saved.household);
+      setSpacesOpen(false);
+    } catch (error) {
+      setStorageError(`Could not create Space: ${getErrorMessage(error)}`);
+    }
+  };
+
+  const changeAccent = async (accent: SpaceAccent) => {
+    if (!activeSpaceId || !household || savingRef.current) return;
+    try {
+      await updateSpaceAccent(activeSpaceId, accent);
+      setHousehold((previous) => previous ? { ...previous, themeAccent: accent } : previous);
+      setSpaces((previous) => previous.map((space) => (
+        space.id === activeSpaceId
+          ? { ...space, accent, household: { ...space.household, themeAccent: accent } }
+          : space
+      )));
+    } catch (error) {
+      setStorageError(`Could not update Space theme: ${getErrorMessage(error)}`);
+    }
+  };
+
+  const dismissSnapshot = () => {
+    setSnapshot(null);
+    const url = new URL(window.location.href);
+    url.searchParams.delete('snapshot');
+    window.history.replaceState({}, '', url);
   };
 
   if (isLoading || household === null) {
@@ -216,7 +315,28 @@ export default function App() {
   }
 
   const hasMembers = household.members.length > 0;
-  const totalSpendingCents = calculateTotalSpending(household);
+  const now = new Date();
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const todayText = `${currentMonth}-${String(now.getDate()).padStart(2, '0')}`;
+  const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  weekStart.setDate(weekStart.getDate() - ((weekStart.getDay() + 6) % 7));
+  const weekStartText = `${weekStart.getFullYear()}-${String(weekStart.getMonth() + 1).padStart(2, '0')}-${String(weekStart.getDate()).padStart(2, '0')}`;
+  const filteredExpenses = household.expenses.filter((expense) => {
+    if (periodFilter === 'month') return expense.date.startsWith(currentMonth);
+    if (periodFilter === 'week') return expense.date >= weekStartText && expense.date <= todayText;
+    return true;
+  });
+  const totalSpendingCents = filteredExpenses.reduce((sum, expense) => sum + expense.amountCents, 0);
+  const allTimeSpendingCents = calculateTotalSpending(household);
+  const reportSummaries = buildWeeklyAndMonthlySummaries(household.expenses);
+  const monthCategoryTotals = new Map<string, number>();
+  for (const expense of household.expenses.filter((entry) => entry.date.startsWith(currentMonth))) {
+    monthCategoryTotals.set(
+      expense.category,
+      (monthCategoryTotals.get(expense.category) ?? 0) + expense.amountCents,
+    );
+  }
+  const snapshotTransfers = snapshot?.transfers ?? [];
   const memberBalances = calculateBalances(household);
   const suggestedTransfers = suggestRepayments(memberBalances);
   const heroParts = splitHeroCurrency(totalSpendingCents);
@@ -233,7 +353,7 @@ export default function App() {
 
   // Category breakdown
   const categoryTotals = new Map<string, number>();
-  for (const exp of household.expenses) {
+  for (const exp of filteredExpenses) {
     categoryTotals.set(
       exp.category,
       (categoryTotals.get(exp.category) ?? 0) + exp.amountCents,
@@ -247,20 +367,28 @@ export default function App() {
     household.members.find((m) => m.id === id)?.name ?? 'Unknown';
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-accent={household.themeAccent ?? 'cyan'}>
       {/* Top Neo-Bank Profile Pill Header */}
-      <header className="top-pill-bar">
-        <div className="profile-cluster">
-          <div className="avatar-circle" aria-hidden="true">
-            {household.name.charAt(0).toUpperCase()}
+      <header className="top-pill-bar" data-accent={household.themeAccent ?? 'cyan'}>
+        <button
+          type="button"
+          className="header-space-trigger"
+          aria-expanded={spacesOpen}
+          aria-haspopup="dialog"
+          onClick={() => setSpacesOpen((open) => !open)}
+        >
+          <div className="profile-cluster">
+            <div className="avatar-circle" aria-hidden="true">
+              {household.name.charAt(0).toUpperCase()}
+            </div>
+            <div className="profile-meta">
+              <h1 className="profile-title">{household.name}</h1>
+              <span className="profile-sub">
+                @RoomSplit • {household.members.length} Housemates · Switch Space
+              </span>
+            </div>
           </div>
-          <div className="profile-meta">
-            <h1 className="profile-title">{household.name}</h1>
-            <span className="profile-sub">
-              @RoomSplit • {household.members.length} Housemates
-            </span>
-          </div>
-        </div>
+        </button>
         <div className="pill-badges">
           <span className="icon-chip">{household.currency}</span>
           <span className="icon-chip">{household.expenses.length} bills</span>
@@ -268,6 +396,48 @@ export default function App() {
       </header>
 
       <main>
+        {spacesOpen && (
+          <div className="spaces-modal-backdrop" onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setSpacesOpen(false);
+          }}>
+            <section className="spaces-modal card" role="dialog" aria-modal="true" aria-labelledby="spaces-title">
+              <div className="row-between">
+                <h2 id="spaces-title">Your Spaces</h2>
+                <button type="button" onClick={() => setSpacesOpen(false)} aria-label="Close Spaces">×</button>
+              </div>
+              <div className="space-list">
+                {spaces.map((space) => (
+                  <div className="space-row" key={space.id}>
+                    <button
+                      type="button"
+                      className={`space-select ${space.id === activeSpaceId ? 'selected' : ''}`}
+                      onClick={() => void switchSpace(space.id)}
+                    >
+                      <span className={`space-color ${space.accent}`} />
+                      <span>{space.name}</span>
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <button type="button" className="primary" onClick={() => void createSpace()}>+ Create Space</button>
+              <div className="form-group accent-picker">
+                <span>Theme accent</span>
+                <div className="accent-options">
+                  {(['cyan', 'emerald', 'amber', 'indigo'] as const).map((accent) => (
+                    <button
+                      key={accent}
+                      type="button"
+                      aria-label={`${accent} accent`}
+                      aria-pressed={(household.themeAccent ?? 'cyan') === accent}
+                      className={`accent-dot ${accent}`}
+                      onClick={() => void changeAccent(accent)}
+                    />
+                  ))}
+                </div>
+              </div>
+            </section>
+          </div>
+        )}
         {needRefresh && (
           <div className="update-prompt" role="status" aria-live="polite">
             <p>
@@ -292,6 +462,37 @@ export default function App() {
             </div>
           </div>
         )}
+        {snapshotError && (
+          <div className="card amount-neg" role="alert">{snapshotError}</div>
+        )}
+        {snapshot && (
+          <section className="snapshot-banner card" aria-label="Shared Settlement Snapshot">
+            <div className="row-between">
+              <div>
+                <h2>Shared Settlement Snapshot</h2>
+                <p className="tx-sub">{snapshot.name} · Read-only</p>
+              </div>
+              <button type="button" onClick={dismissSnapshot}>Return to my ledger</button>
+            </div>
+            {snapshotTransfers.length ? snapshotTransfers.map((transfer) => (
+              <div className="row-between snapshot-transfer" key={`${transfer.fromId}-${transfer.toId}`}>
+                <span>{transfer.fromName} → {transfer.toName}</span>
+                <strong>{formatMoney(transfer.amountCents)}</strong>
+              </div>
+            )) : <p className="empty-state">Everyone is settled up.</p>}
+            <div className="snapshot-balances">
+              {snapshot.balances.map((balance) => (
+                <div className="row-between" key={balance.memberId}>
+                  <span>{balance.name}</span>
+                  <strong className={balance.balanceCents > 0 ? 'amount-pos' : balance.balanceCents < 0 ? 'amount-neg' : ''}>
+                    {balance.balanceCents > 0 ? '+' : ''}{formatMoney(balance.balanceCents)}
+                  </strong>
+                </div>
+              ))}
+            </div>
+            <p className="tx-sub">Total spend: {formatMoney(snapshot.totalSpendingCents)}</p>
+          </section>
+        )}
         {storageError && (
           <div
             className="card"
@@ -311,13 +512,37 @@ export default function App() {
             </button>
           </div>
         )}
-        {activeTab === 'overview' && (
+        {!snapshot && activeTab === 'overview' && (
           <section>
+            <div className="home-tools">
+              <div className="period-filter" role="group" aria-label="Spending period">
+                {([
+                  ['all', 'All Time'],
+                  ['month', 'This Month'],
+                  ['week', 'This Week'],
+                ] as const).map(([value, label]) => (
+                  <button
+                    type="button"
+                    key={value}
+                    className={periodFilter === value ? 'active' : ''}
+                    aria-pressed={periodFilter === value}
+                    onClick={() => setPeriodFilter(value)}
+                  >{label}</button>
+                ))}
+              </div>
+              <button type="button" className="report-button" onClick={() => {
+                try {
+                  exportPdfReport(household);
+                } catch (error) {
+                  setStorageError(getErrorMessage(error));
+                }
+              }}>📄 PDF Report</button>
+            </div>
             {/* Cyan Gradient Hero Card */}
             <div className="hero-card">
               <div className="hero-label">
-                <span>Total Household Spending</span>
-                <span>{household.expenses.length} Bills</span>
+                <span>{periodFilter === 'all' ? 'Total Household Spending' : periodFilter === 'month' ? 'This Month' : 'This Week'}</span>
+                <span>{filteredExpenses.length} Bills</span>
               </div>
               <div className="hero-amount">
                 {heroParts.whole}
@@ -411,8 +636,8 @@ export default function App() {
                         ? 'neg'
                         : 'neutral';
                   const pctOfTotal =
-                    totalSpendingCents > 0
-                      ? Math.round((b.paidCents / totalSpendingCents) * 100)
+                    allTimeSpendingCents > 0
+                      ? Math.round((b.paidCents / allTimeSpendingCents) * 100)
                       : 0;
                   return (
                     <div key={b.memberId} className="account-card">
@@ -467,11 +692,42 @@ export default function App() {
                       <span className="cat-rank">{idx + 1}</span>
                       <div className="cat-name">{cat}</div>
                       <div className="cat-amount">{formatMoney(cents)}</div>
+                      {household.categoryBudgetsCents?.[cat] !== undefined && household.categoryBudgetsCents[cat] > 0 && (
+                        <div className="budget-meter">
+                          {(() => {
+                            const percentage = Math.round(((monthCategoryTotals.get(cat) ?? 0) / household.categoryBudgetsCents[cat]) * 100);
+                            return <>
+                              <span>{percentage}% of monthly cap</span>
+                              <span className={`budget-track ${percentage >= 100 ? 'over' : percentage >= 80 ? 'near' : ''}`}>
+                                <span style={{ width: `${Math.min(percentage, 100)}%` }} />
+                              </span>
+                            </>;
+                          })()}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
               </>
             )}
+
+            <details className="card report-preview">
+              <summary>Weekly &amp; Monthly Breakdown</summary>
+              <h3>Recent Weeks</h3>
+              {reportSummaries.weekly.slice(0, 4).map((row) => (
+                <div className="row-between report-row" key={row.period}>
+                  <span>{row.period}<small>{row.billCount} bills · {row.topCategory}</small></span>
+                  <strong>{formatMoney(row.totalCents)}</strong>
+                </div>
+              ))}
+              <h3>Recent Months</h3>
+              {reportSummaries.monthly.slice(0, 3).map((row) => (
+                <div className="row-between report-row" key={row.period}>
+                  <span>{row.period}<small>{row.billCount} bills</small></span>
+                  <strong>{formatMoney(row.totalCents)}</strong>
+                </div>
+              ))}
+            </details>
 
             {/* Suggested Repayments List ("Recent Transactions" style) */}
             <div className="section-head">
@@ -563,8 +819,9 @@ export default function App() {
           </section>
         )}
 
-        {activeTab === 'expenses' && (
+        {!snapshot && activeTab === 'expenses' && (
           <ExpenseManager
+            key={activeSpaceId}
             household={household}
             onUpdateHousehold={commitHousehold}
             isSaving={isSaving}
@@ -572,16 +829,18 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'repayments' && (
+        {!snapshot && activeTab === 'repayments' && (
           <RepaymentManager
+            key={activeSpaceId}
             household={household}
             onUpdateHousehold={commitHousehold}
             isSaving={isSaving}
           />
         )}
 
-        {activeTab === 'settings' && (
+        {!snapshot && activeTab === 'settings' && (
           <HouseholdSettings
+            key={activeSpaceId}
             household={household}
             onUpdateHousehold={commitHousehold}
             onLoadDemo={() => commitHousehold(DEMO_HOUSEHOLD)}
@@ -592,7 +851,7 @@ export default function App() {
       </main>
 
       {/* Floating Neo-Bank Bottom Dock Navigation */}
-      <div className="bottom-dock-wrap">
+      {!snapshot && <div className="bottom-dock-wrap">
         <nav className="bottom-dock" aria-label="Primary navigation">
           <button
             type="button"
@@ -651,7 +910,7 @@ export default function App() {
             <span>Settings</span>
           </button>
         </nav>
-      </div>
+      </div>}
     </div>
   );
 }

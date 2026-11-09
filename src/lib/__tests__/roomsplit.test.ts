@@ -4,6 +4,13 @@ import { calculateBalances, calculateTotalSpending, suggestRepayments } from '..
 import { validateBackupJson } from '../backup';
 import { parseMoney } from '../money';
 import { buildCustomSplit, splitEqual } from '../split';
+import { buildSupermarketSplit, evaluateMoneyExpression } from '../mathInput';
+import {
+  buildWeeklyAndMonthlySummaries,
+  decodeShareSnapshot,
+  encodeShareSnapshot,
+} from '../reports';
+import { decryptBackupJson, encryptBackupJson } from '../cryptoBackup';
 
 function createExpense(
   id: string,
@@ -109,6 +116,30 @@ describe('money and splits', () => {
       expect(exact.shares.map((share) => share.amountCents)).toEqual([
         50000, 25000, 15000,
       ]);
+    }
+  });
+
+  test('evaluates a safe plus and minus money expression', () => {
+    expect(evaluateMoneyExpression('1200 + 450.50 - 50')).toEqual({
+      ok: true,
+      cents: 160050,
+    });
+    expect(evaluateMoneyExpression('10 - 12').ok).toBe(false);
+    expect(evaluateMoneyExpression('10 * 2').ok).toBe(false);
+  });
+
+  test('deducts personal supermarket items before splitting shared balance', () => {
+    const result = buildSupermarketSplit(
+      500000,
+      ['m1', 'm2', 'm3'],
+      { m3: '800.00' },
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.shares.map((share) => [share.memberId, share.amountCents]))
+        .toEqual([['m1', 140000], ['m2', 140000], ['m3', 220000]]);
+      expect(result.shares.reduce((sum, share) => sum + share.amountCents, 0))
+        .toBe(500000);
     }
   });
 });
@@ -234,6 +265,66 @@ describe('backup validation', () => {
 
     expect(validateBackupJson(JSON.stringify(invalidPayer)).ok).toBe(false);
     expect(validateBackupJson(JSON.stringify(invalidShare)).ok).toBe(false);
+  });
+
+  describe('expense reports', () => {
+    test('groups weekly summaries Monday to Sunday and monthly summaries', () => {
+      const expenses = [
+        createExpense('week-a', 10000, 'm1', [{ memberId: 'm1', amountCents: 10000 }]),
+        { ...createExpense('week-a2', 20000, 'm2', [{ memberId: 'm2', amountCents: 20000 }]), date: '2026-11-08', category: 'Rent' },
+        { ...createExpense('week-b', 30000, 'm3', [{ memberId: 'm3', amountCents: 30000 }]), date: '2026-11-09', category: 'Groceries' },
+        { ...createExpense('month-b', 40000, 'm1', [{ memberId: 'm1', amountCents: 40000 }]), date: '2026-12-01', category: 'Utilities' },
+      ];
+      const summaries = buildWeeklyAndMonthlySummaries(expenses);
+
+      expect(summaries.weekly).toEqual([
+        expect.objectContaining({
+          period: '2026-11-30 to 2026-12-06',
+          billCount: 1,
+          totalCents: 40000,
+          topCategory: 'Utilities',
+        }),
+        expect.objectContaining({
+          period: '2026-11-09 to 2026-11-15',
+          billCount: 1,
+          totalCents: 30000,
+          topCategory: 'Groceries',
+        }),
+        expect.objectContaining({
+          period: '2026-11-02 to 2026-11-08',
+          billCount: 2,
+          totalCents: 30000,
+          topCategory: 'Rent',
+        }),
+      ]);
+      expect(summaries.monthly).toEqual([
+        expect.objectContaining({ period: '2026-12', billCount: 1, totalCents: 40000 }),
+        expect.objectContaining({ period: '2026-11', billCount: 3, totalCents: 60000 }),
+      ]);
+    });
+
+    test('encodes a compact read-only settlement snapshot for URL sharing', () => {
+      const household = createDemoHousehold();
+      const decoded = decodeShareSnapshot(encodeShareSnapshot(household));
+      expect(decoded.name).toBe(household.name);
+      expect(decoded.totalSpendingCents).toBe(510000);
+      expect(decoded.transfers.map((transfer) => transfer.amountCents)).toEqual([
+        110000, 20000,
+      ]);
+      expect(decoded).not.toHaveProperty('expenses');
+    });
+  });
+
+  describe('encrypted backups', () => {
+    test('encrypts and decrypts backup text using a password', async () => {
+      const plaintext = JSON.stringify(createBackup());
+      const encrypted = await encryptBackupJson(plaintext, 'household-secret');
+      expect(encrypted).not.toContain('Colombo Student Flat');
+      await expect(decryptBackupJson(encrypted, 'household-secret')).resolves.toBe(plaintext);
+      await expect(decryptBackupJson(encrypted, 'wrong-password')).rejects.toThrow(
+        'Could not decrypt backup. Check the password and file.',
+      );
+    });
   });
 
   test('round-trips an exported backup with identical ledger and derived balances', () => {

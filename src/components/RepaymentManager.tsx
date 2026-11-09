@@ -3,6 +3,7 @@ import type { FormEvent } from 'react';
 import type { Household, Repayment } from '../types';
 import { calculateBalances, suggestRepayments } from '../lib/balances';
 import { centsToInputString, formatMoney, parseMoney } from '../lib/money';
+import { buildWhatsAppSummary, encodeShareSnapshot } from '../lib/reports';
 
 type Props = {
   household: Household;
@@ -28,6 +29,9 @@ export default function RepaymentManager({
   const [date, setDate] = useState(getLocalTodayDate);
   const [formError, setFormError] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [copyState, setCopyState] = useState('');
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareError, setShareError] = useState('');
 
   const getMemberName = (id: string) =>
     household.members.find((member) => member.id === id)?.name ?? 'Unknown';
@@ -117,8 +121,69 @@ export default function RepaymentManager({
     if (saved) setConfirmDeleteId(null);
   };
 
+  const copyWhatsAppSummary = async () => {
+    try {
+      await navigator.clipboard.writeText(buildWhatsAppSummary(household));
+      setCopyState('Settlement summary copied.');
+      setShareError('');
+    } catch (error) {
+      setCopyState('');
+      setShareError(error instanceof Error ? error.message : 'Could not copy the WhatsApp summary.');
+    }
+  };
+
+  const snapshotLink = `${window.location.origin}${window.location.pathname}?snapshot=${encodeShareSnapshot(household)}`;
+
+  const copySnapshotLink = async () => {
+    try {
+      await navigator.clipboard.writeText(snapshotLink);
+      setCopyState('Read-only snapshot link copied.');
+      setShareError('');
+    } catch (error) {
+      setCopyState('');
+      setShareError(error instanceof Error ? error.message : 'Could not copy the snapshot link.');
+    }
+  };
+
   return (
     <section className="stack">
+      <div className="card share-tools">
+        <div className="share-actions">
+          <button type="button" onClick={() => void copyWhatsAppSummary()}>
+            📋 Copy for WhatsApp
+          </button>
+          <button type="button" className="primary" onClick={() => {
+            setShareOpen((open) => !open);
+            setCopyState('');
+            setShareError('');
+          }}>
+            🔗 {shareOpen ? 'Hide Snapshot' : 'Share Snapshot / QR'}
+          </button>
+        </div>
+        {copyState && <p className="amount-pos" role="status">{copyState}</p>}
+        {shareError && <p className="amount-neg" role="alert">{shareError}</p>}
+        {shareOpen && (
+          <div className="share-snapshot">
+            <div className="share-card-preview">
+              <svg viewBox="0 0 96 96" role="img" aria-label="RoomSplit settlement share badge">
+                <rect width="96" height="96" rx="18" fill="#e8f7f7" />
+                <path d="M25 31h22a10 10 0 0 1 0 20H39m10 14H27a10 10 0 0 1 0-20h8m10-7 7 7-7 7m-1 6-7 7 7 7" fill="none" stroke="#007d7b" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
+                <circle cx="70" cy="27" r="7" fill="#0099cc" />
+                <circle cx="70" cy="69" r="7" fill="#059669" />
+              </svg>
+              <div>
+                <strong>{household.name}</strong>
+                <small>Read-only settlement snapshot</small>
+                <small>{suggestions.length} suggested transfer(s)</small>
+              </div>
+            </div>
+            <label htmlFor="snapshot-url">Snapshot link</label>
+            <input id="snapshot-url" type="url" readOnly value={snapshotLink} onFocus={(event) => event.currentTarget.select()} />
+            <button type="button" className="primary" onClick={() => void copySnapshotLink()}>Copy snapshot link</button>
+            <p className="tx-sub">Anyone with this link can view the shared ledger snapshot. It does not grant edit access.</p>
+          </div>
+        )}
+      </div>
       <div className="card">
         <h2>Suggested Settlements</h2>
         {suggestions.length === 0 ? (
