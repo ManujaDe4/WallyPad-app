@@ -642,7 +642,7 @@ export default function HouseholdSettings({
                   <>
                     <div className="tx-left">
                       <div className="tx-avatar">
-                        {member.name.charAt(0).toUpperCase()}
+                        {member.avatar ?? member.name.charAt(0).toUpperCase()}
                       </div>
                       <div className="tx-info">
                         <p className="tx-title">{member.name}</p>

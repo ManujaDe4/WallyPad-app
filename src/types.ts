@@ -1,4 +1,5 @@
-export type Member = { id: string; name: string };
+export type Member = { id: string; name: string; avatar?: string };
+export type LocalIdentity = { name: string; avatar: string };
 export type Share = { memberId: string; amountCents: number };
 
 export type Expense = {

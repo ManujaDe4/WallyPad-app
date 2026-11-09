@@ -398,6 +398,7 @@ describe('backup validation', () => {
 
   test('round-trips an exported backup with identical ledger and derived balances', () => {
     const backup = createBackup();
+    backup.household.members[0].avatar = '🦁';
     const result = validateBackupJson(JSON.stringify(backup));
 
     expect(result.ok).toBe(true);

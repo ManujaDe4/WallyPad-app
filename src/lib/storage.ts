@@ -1,6 +1,6 @@
 import { openDB } from 'idb';
 import type { DBSchema } from 'idb';
-import type { Household, Space, SpaceAccent } from '../types';
+import type { Household, LocalIdentity, Space, SpaceAccent } from '../types';
 
 interface RoomSplitDatabase extends DBSchema {
   appState: {
@@ -85,6 +85,31 @@ export async function loadSpacesIndex(): Promise<Space[]> {
 export async function loadActiveSpaceId(): Promise<string | null> {
   const db = await database;
   return (await db.get('settings', 'activeSpaceId')) ?? null;
+}
+
+export async function loadLocalIdentity(): Promise<LocalIdentity | null> {
+  const db = await database;
+  const stored = await db.get('settings', 'localIdentity');
+  if (!stored) return null;
+  let value: unknown;
+  try {
+    value = JSON.parse(stored) as unknown;
+  } catch {
+    throw new Error('Saved local identity data is invalid.');
+  }
+  if (
+    typeof value !== 'object' || value === null ||
+    !('name' in value) || typeof value.name !== 'string' ||
+    !('avatar' in value) || typeof value.avatar !== 'string'
+  ) {
+    throw new Error('Saved local identity data is invalid.');
+  }
+  return { name: value.name, avatar: value.avatar };
+}
+
+export async function saveLocalIdentity(identity: LocalIdentity): Promise<void> {
+  const db = await database;
+  await db.put('settings', JSON.stringify(identity), 'localIdentity');
 }
 
 export async function saveSpace(

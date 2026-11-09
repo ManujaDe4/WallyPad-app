@@ -152,7 +152,14 @@ export function validateBackupJson(rawText: string): BackupValidationResult {
     }
     memberIds.add(member.id);
     memberNames.add(normalizedName);
-    members.push({ id: member.id, name: member.name.trim() });
+    if ('avatar' in member && typeof member.avatar !== 'string') {
+      return validationError('A member avatar is invalid.');
+    }
+    members.push({
+      id: member.id,
+      name: member.name.trim(),
+      ...(typeof member.avatar === 'string' ? { avatar: member.avatar } : {}),
+    });
   }
 
   const expenseIds = new Set<string>();

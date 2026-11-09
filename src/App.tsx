@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
-import type { Household, Space, SpaceAccent } from './types';
+import type { Household, LocalIdentity, Member, Space, SpaceAccent } from './types';
 import HouseholdSettings from './components/HouseholdSettings';
 import ExpenseManager from './components/ExpenseManager';
+import OnboardingModal from './components/OnboardingModal';
 import RepaymentManager from './components/RepaymentManager';
 import { formatMoney } from './lib/money';
 import {
   loadActiveSpaceId,
   loadHousehold,
+  loadLocalIdentity,
   loadSpacesIndex,
   saveHousehold,
+  saveLocalIdentity,
   saveSpace,
   setActiveSpaceId,
   updateSpaceAccent,
@@ -181,6 +184,10 @@ export default function App() {
   const [joinPrompt, setJoinPrompt] = useState<{ roomCode: string; pin: string } | null>(null);
   const [joinError, setJoinError] = useState('');
   const [joinBusy, setJoinBusy] = useState(false);
+  const [onboardingHousehold, setOnboardingHousehold] = useState<Household | null>(null);
+  const [onboardingIdentity, setOnboardingIdentity] = useState<LocalIdentity | null>(null);
+  const [onboardingError, setOnboardingError] = useState('');
+  const [onboardingBusy, setOnboardingBusy] = useState(false);
   const [isOnline, setIsOnline] = useState(
     () => typeof navigator === 'undefined' || navigator.onLine,
   );
@@ -191,6 +198,8 @@ export default function App() {
   const householdRef = useRef<Household | null>(null);
   const activeSpaceIdRef = useRef('');
   const spacesRef = useRef(spaces);
+  const autoJoinKeyRef = useRef('');
+  const onboardingSpaceIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     householdRef.current = household;
@@ -386,8 +395,10 @@ export default function App() {
     if (activeSpaceIdRef.current === targetSpaceId) setHousehold(saved.household);
   }, []);
 
-  const addJoinedHousehold = async (joined: Household): Promise<boolean> => {
-    const id = crypto.randomUUID();
+  const addJoinedHousehold = useCallback(async (
+    joined: Household,
+    id: string = crypto.randomUUID(),
+  ): Promise<boolean> => {
     try {
       const saved = await saveSpace({
         id,
@@ -407,7 +418,25 @@ export default function App() {
       setStorageError(`Could not save the joined household: ${getErrorMessage(error)}`);
       return false;
     }
-  };
+  }, []);
+
+  const handleJoinedHousehold = useCallback(async (joined: Household): Promise<void> => {
+    const identity = await loadLocalIdentity();
+    window.history.replaceState({}, document.title, window.location.pathname);
+    setJoinBusy(false);
+    const identityMember = identity && joined.members.some(
+      (member) => member.name.trim().toLowerCase() === identity.name.trim().toLowerCase(),
+    );
+    if (identityMember) {
+      if (await addJoinedHousehold(joined)) setJoinPrompt(null);
+      else setJoinError('Could not save this shared household locally.');
+      return;
+    }
+    setOnboardingIdentity(identity);
+    setOnboardingHousehold(joined);
+    setOnboardingError('');
+    setJoinPrompt(null);
+  }, [addJoinedHousehold]);
 
   const confirmJoinRoom = async () => {
     if (!joinPrompt) return;
@@ -415,12 +444,93 @@ export default function App() {
     setJoinBusy(true);
     try {
       const joined = await joinRoomSync(joinPrompt.roomCode, joinPrompt.pin);
-      if (await addJoinedHousehold(joined)) setJoinPrompt(null);
-      else setJoinError('Could not save this shared household locally.');
+      await handleJoinedHousehold(joined);
     } catch (error) {
       setJoinError(error instanceof Error ? error.message : 'Could not join this room.');
     } finally {
       setJoinBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (
+      isLoading || !joinPrompt || !/^\d{4}$/.test(joinPrompt.pin) ||
+      !isCloudConfigured()
+    ) return;
+    const inviteKey = `${joinPrompt.roomCode.trim().toUpperCase()}:${joinPrompt.pin}`;
+    if (autoJoinKeyRef.current === inviteKey) return;
+    autoJoinKeyRef.current = inviteKey;
+    let active = true;
+    setJoinBusy(true);
+    setJoinError('');
+    void joinRoomSync(joinPrompt.roomCode, joinPrompt.pin)
+      .then(async (joined) => {
+        if (active) await handleJoinedHousehold(joined);
+      })
+      .catch((error: unknown) => {
+        if (active) {
+          setJoinError(error instanceof Error ? error.message : 'Could not join this room.');
+        }
+      })
+      .finally(() => {
+        if (active) setJoinBusy(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [isLoading, joinPrompt, handleJoinedHousehold]);
+
+  const finishOnboarding = async (nickname: string, avatar: string): Promise<void> => {
+    if (!onboardingHousehold) return;
+    const member: Member = {
+      id: crypto.randomUUID(),
+      name: nickname,
+      avatar,
+    };
+    const nextHousehold: Household = {
+      ...onboardingHousehold,
+      members: [...onboardingHousehold.members, member],
+      updatedAt: new Date().toISOString().slice(0, 10),
+      pendingSync: true,
+    };
+    setOnboardingBusy(true);
+    setOnboardingError('');
+    syncingRef.current = true;
+    try {
+      await saveLocalIdentity({ name: nickname, avatar });
+      const spaceId = onboardingSpaceIdRef.current ?? crypto.randomUUID();
+      onboardingSpaceIdRef.current = spaceId;
+      if (!await addJoinedHousehold(nextHousehold, spaceId)) {
+        throw new Error('Could not save the joined household locally.');
+      }
+      const syncedHousehold = await pushOrMergeRoom(nextHousehold);
+      if (syncedHousehold.pendingSync) syncRetryBlockedRef.current = true;
+      await saveHousehold(syncedHousehold);
+      setHousehold(syncedHousehold);
+      setSpaces((previous) => previous.map((space) => (
+        space.id === spaceId
+          ? { ...space, name: syncedHousehold.name, household: syncedHousehold }
+          : space
+      )));
+      setOnboardingHousehold(null);
+      setOnboardingIdentity(null);
+      onboardingSpaceIdRef.current = null;
+    } catch (error) {
+      setOnboardingError(
+        error instanceof Error ? error.message : 'Could not finish joining the household.',
+      );
+    } finally {
+      syncingRef.current = false;
+      setOnboardingBusy(false);
+      if (
+        !syncRetryBlockedRef.current &&
+        typeof navigator !== 'undefined' && navigator.onLine &&
+        householdRef.current?.pendingSync
+      ) {
+        setHousehold((previous) => previous?.pendingSync
+          ? { ...previous }
+          : previous);
+      }
     }
   };
 
@@ -852,6 +962,21 @@ export default function App() {
               )}
             </section>
           </div>
+        )}
+        {onboardingHousehold && (
+          <OnboardingModal
+            householdName={onboardingHousehold.name}
+            initialName={onboardingIdentity?.name ?? ''}
+            initialAvatar={onboardingIdentity?.avatar ?? ''}
+            isSaving={onboardingBusy}
+            error={onboardingError}
+            onJoin={finishOnboarding}
+            onCancel={() => {
+              if (onboardingBusy) return;
+              setOnboardingHousehold(null);
+              setOnboardingIdentity(null);
+            }}
+          />
         )}
         {needRefresh && (
           <div className="update-prompt" role="status" aria-live="polite">
