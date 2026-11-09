@@ -111,7 +111,12 @@ for new projects) or `VITE_SUPABASE_ANON_KEY` in the local environment and in
 the Cloudflare Pages build environment to enable cloud rooms. The
 Supabase project must provide the `roomsplit_rooms` table, the
 `fetch_room_with_pin` and `upsert_room_with_pin` RPCs, and Realtime publication
-for that table. Cloudflare Pages variables are embedded at build time, so add
+for that table. RPC arguments should be named `p_room_code` and `p_pin_hash`
+for fetch, and `p_room_code`, `p_pin_hash`, and `p_payload` for upsert. The
+client also tries common legacy parameter names when PostgREST returns
+`PGRST202`. After changing an RPC signature in Supabase, refresh the schema
+cache with `NOTIFY pgrst, 'reload schema';` in the SQL editor. Cloudflare Pages
+variables are embedded at build time, so add
 them under the Pages build environment settings and trigger a new deployment
 after changing them. Without these settings, RoomSplit stays in local-only
 mode.

@@ -51,6 +51,29 @@ function throwSupabaseError(error: { message: string; code?: string }): never {
   );
 }
 
+function throwRpcSignatureError(
+  rpcName: string,
+  parameterSets: string[],
+  error: { message: string; hint?: string },
+): never {
+  const expected = parameterSets.join(' or ');
+  const hint = error.hint ? ` Supabase hint: ${error.hint}` : '';
+  throw new Error(
+    `Supabase could not match the ${rpcName} function arguments. ` +
+    `The app tried ${expected}. Update the RPC parameter names to one of ` +
+    'these signatures, then run NOTIFY pgrst, \'reload schema\'.' +
+    hint,
+  );
+}
+
+function isMissingRpcSignature(error: { code?: string }): boolean {
+  return error.code === 'PGRST202';
+}
+
+function throwRpcError(error: { message: string; code?: string }): never {
+  throwSupabaseError(error);
+}
+
 export async function hashPin(roomCode: string, pin: string): Promise<string> {
   const input = `${roomCode.toUpperCase().trim()}:${pin.trim()}`;
   const digest = await crypto.subtle.digest(
@@ -181,12 +204,24 @@ function householdFromResponse(data: unknown): Household {
 }
 
 async function fetchRoom(roomCode: string, pinHash: string): Promise<Household> {
-  const { data, error } = await getClient().rpc('fetch_room_with_pin', {
-    p_room_code: roomCode,
-    p_pin_hash: pinHash,
-  });
-  if (error) throwSupabaseError(error);
-  return householdFromResponse(data);
+  const argumentSets: Array<Record<string, unknown>> = [
+    { p_room_code: roomCode, p_pin_hash: pinHash },
+    { room_code: roomCode, pin_hash: pinHash },
+    { p_room_code: roomCode, pin: pinHash },
+    { room_code: roomCode, pin: pinHash },
+  ];
+  let lastSignatureError: { message: string; hint?: string } | null = null;
+  for (const args of argumentSets) {
+    const { data, error } = await getClient().rpc('fetch_room_with_pin', args);
+    if (!error) return householdFromResponse(data);
+    if (!isMissingRpcSignature(error)) throwRpcError(error);
+    lastSignatureError = error;
+  }
+  throwRpcSignatureError(
+    'fetch_room_with_pin',
+    ['(p_room_code, p_pin_hash)', '(room_code, pin_hash)', '(room_code, pin)'],
+    lastSignatureError ?? { message: 'No matching RPC signature was found.' },
+  );
 }
 
 async function upsertRoom(
@@ -194,12 +229,36 @@ async function upsertRoom(
   pinHash: string,
   household: Household,
 ): Promise<void> {
-  const { error } = await getClient().rpc('upsert_room_with_pin', {
-    p_room_code: roomCode,
-    p_pin_hash: pinHash,
-    p_payload: household,
-  });
-  if (error) throwSupabaseError(error);
+  const argumentSets: Array<Record<string, unknown>> = [
+    { p_room_code: roomCode, p_pin_hash: pinHash, p_payload: household },
+    { p_room_code: roomCode, p_pin_hash: pinHash, p_household: household },
+    { p_room_code: roomCode, p_pin_hash: pinHash, p_room_payload: household },
+    { p_room_code: roomCode, p_pin: pinHash, p_payload: household },
+    { p_room_code: roomCode, p_pin: pinHash, p_household: household },
+    { room_code: roomCode, pin_hash: pinHash, payload: household },
+    { room_code: roomCode, pin_hash: pinHash, household: household },
+    { room_code: roomCode, pin: pinHash, payload: household },
+  ];
+  let lastSignatureError: { message: string; hint?: string } | null = null;
+  for (const args of argumentSets) {
+    const { error } = await getClient().rpc('upsert_room_with_pin', args);
+    if (!error) return;
+    if (!isMissingRpcSignature(error)) throwRpcError(error);
+    lastSignatureError = error;
+  }
+  throwRpcSignatureError(
+    'upsert_room_with_pin',
+    [
+      '(p_room_code, p_pin_hash, p_payload)',
+      '(p_room_code, p_pin_hash, p_household)',
+      '(p_room_code, p_pin_hash, p_room_payload)',
+      '(p_room_code, p_pin, p_payload)',
+      '(p_room_code, p_pin, p_household)',
+      '(room_code, pin_hash, payload)',
+      '(room_code, pin_hash, household)',
+    ],
+    lastSignatureError ?? { message: 'No matching RPC signature was found.' },
+  );
 }
 
 export async function enableRoomSync(
