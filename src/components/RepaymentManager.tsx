@@ -116,6 +116,7 @@ export default function RepaymentManager({
       repayments: household.repayments.filter(
         (repayment) => repayment.id !== repaymentId,
       ),
+      deletedIds: [...new Set([...(household.deletedIds ?? []), repaymentId])],
       updatedAt: getLocalTodayDate(),
     });
     if (saved) setConfirmDeleteId(null);

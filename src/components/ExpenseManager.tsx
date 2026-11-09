@@ -220,6 +220,7 @@ export default function ExpenseManager({
     const saved = await onUpdateHousehold({
       ...household,
       expenses: household.expenses.filter((exp) => exp.id !== expenseId),
+      deletedIds: [...new Set([...(household.deletedIds ?? []), expenseId])],
       updatedAt: getLocalTodayDate(),
     });
     if (!saved) return;

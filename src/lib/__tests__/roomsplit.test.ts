@@ -11,6 +11,7 @@ import {
   encodeShareSnapshot,
 } from '../reports';
 import { decryptBackupJson, encryptBackupJson } from '../cryptoBackup';
+import { hashPin, mergeHouseholds } from '../cloudSync';
 
 function createExpense(
   id: string,
@@ -70,6 +71,74 @@ function createBackup(household = createDemoHousehold()): Backup {
     household,
   };
 }
+
+describe('cloud household merging', () => {
+  test('hashes trimmed PINs consistently with the normalized room code', async () => {
+    const hash = await hashPin(' flat-4829 ', ' 1234 ');
+
+    expect(hash).toMatch(/^[a-f0-9]{64}$/);
+    await expect(hashPin('FLAT-4829', '1234')).resolves.toBe(hash);
+  });
+
+  test('preserves concurrent expenses and removes tombstoned records', () => {
+    const local = createDemoHousehold();
+    const remote = createDemoHousehold();
+    local.members.push({ id: 'offline-member-local', name: 'Local housemate' });
+    remote.members.push({ id: 'offline-member-remote', name: 'Remote housemate' });
+    local.expenses = [
+      ...local.expenses,
+      createExpense('offline-local', 1200, 'm1', []),
+      createExpense('deleted-expense', 500, 'm1', []),
+    ];
+    remote.expenses = [
+      ...remote.expenses,
+      createExpense('offline-remote', 2400, 'm2', []),
+      createExpense('deleted-expense', 500, 'm1', []),
+    ];
+    remote.repayments = [{
+      id: 'deleted-repayment',
+      fromId: 'm1',
+      toId: 'm2',
+      amountCents: 500,
+      date: '2026-11-08',
+    }];
+    local.repayments.push({
+      id: 'offline-repayment-local',
+      fromId: 'm1',
+      toId: 'm2',
+      amountCents: 700,
+      date: '2026-11-08',
+    });
+    remote.repayments.push({
+      id: 'offline-repayment-remote',
+      fromId: 'm2',
+      toId: 'm3',
+      amountCents: 800,
+      date: '2026-11-08',
+    });
+    local.members.push({ id: 'deleted-member', name: 'Temporary' });
+    local.deletedIds = ['deleted-member'];
+    remote.deletedIds = ['deleted-expense'];
+
+    const merged = mergeHouseholds(local, remote, ['deleted-repayment']);
+
+    expect(merged.expenses.map((expense) => expense.id)).toEqual(
+      expect.arrayContaining(['offline-local', 'offline-remote']),
+    );
+    expect(merged.members.map((member) => member.id)).toEqual(
+      expect.arrayContaining(['offline-member-local', 'offline-member-remote']),
+    );
+    expect(merged.repayments.map((repayment) => repayment.id)).toEqual(
+      expect.arrayContaining(['offline-repayment-local', 'offline-repayment-remote']),
+    );
+    expect(merged.expenses.some((expense) => expense.id === 'deleted-expense')).toBe(false);
+    expect(merged.members.some((member) => member.id === 'deleted-member')).toBe(false);
+    expect(merged.repayments.some((repayment) => repayment.id === 'deleted-repayment')).toBe(false);
+    expect(merged.deletedIds).toContain('deleted-expense');
+    expect(merged.deletedIds).toContain('deleted-member');
+    expect(merged.deletedIds).toContain('deleted-repayment');
+  });
+});
 
 describe('money and splits', () => {
   test('parses valid money into integer cents', () => {

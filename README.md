@@ -49,6 +49,10 @@ expenses totaling LKR 5,100.00.
 - Copy a WhatsApp settlement summary or share a compact read-only settlement
   snapshot link.
 - Persist household ledgers and Spaces in browser IndexedDB.
+- Optionally sync a Space live across devices with a room code and PIN;
+  concurrent records merge and deleted records are retained as tombstones.
+- Join a shared room from an invite link, while keeping the local ledger usable
+  offline and retrying pending cloud changes when connectivity returns.
 - Cache the app shell and static assets with a Service Worker for offline
   reloads, and prompt users when an app update is ready.
 - Export and import JSON backups with schema, size, member-reference, date, and
@@ -100,12 +104,27 @@ including HTML, CSS, JavaScript, and icons, so an already-loaded app can reload
 offline. The Service Worker cache does not replace or contain the household
 ledger.
 
+### Optional Supabase Room Sync
+
+Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in the local environment
+and in the Cloudflare Pages build environment to enable cloud rooms. The
+Supabase project must provide the `roomsplit_rooms` table, the
+`fetch_room_with_pin` and `upsert_room_with_pin` RPCs, and Realtime publication
+for that table. Without these settings, RoomSplit stays in local-only mode.
+
+Each Space remains stored in IndexedDB and can be edited offline. When room
+sync is enabled, changes merge by record ID and deleted record IDs are shared
+as tombstones; pending changes are retried after reconnecting. Room access is
+based on a room code and a four-digit PIN, not user accounts. The PIN is
+SHA-256 hashed in the browser before it is sent to Supabase. Share invite links
+only with people you intend to give access to.
+
 ## Known V1 Limitations
 
-- Spaces are local to one browser profile and site origin. There is no login,
-  hosted ledger, or live multi-device cloud synchronization.
+- Spaces remain local to each browser profile unless the optional Supabase room
+  sync is enabled. There is no user login or account-based identity.
 - Moving a Space between devices or different site origins requires manually
-  exporting and importing its JSON backup.
+  exporting and importing its JSON backup when cloud room sync is not enabled.
 - Local browser storage is not encrypted. Exported JSON backups contain
   personal expense data unless the optional encrypted-backup export is used;
   keep both kinds somewhere private.

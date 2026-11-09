@@ -80,6 +80,16 @@ export function validateBackupJson(rawText: string): BackupValidationResult {
   ) {
     return validationError('Household records must be arrays.');
   }
+  let deletedIds: string[] | undefined;
+  if ('deletedIds' in rawHousehold) {
+    if (
+      !Array.isArray(rawHousehold.deletedIds) ||
+      rawHousehold.deletedIds.some((id) => typeof id !== 'string' || !id.trim())
+    ) {
+      return validationError('Household deleted record IDs are invalid.');
+    }
+    deletedIds = [...new Set(rawHousehold.deletedIds)];
+  }
   let categoryBudgetsCents: Record<string, number> | undefined;
   if ('categoryBudgetsCents' in rawHousehold) {
     if (!isRecord(rawHousehold.categoryBudgetsCents)) {
@@ -285,6 +295,7 @@ export function validateBackupJson(rawText: string): BackupValidationResult {
       expenses,
       repayments,
       updatedAt: rawHousehold.updatedAt,
+      ...(deletedIds ? { deletedIds } : {}),
       ...(categoryBudgetsCents ? { categoryBudgetsCents } : {}),
       ...(themeAccent ? { themeAccent } : {}),
     },

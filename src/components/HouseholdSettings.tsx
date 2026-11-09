@@ -5,12 +5,19 @@ import { exportBackupFile, validateBackupJson } from '../lib/backup';
 import { centsToInputString, parseMoney } from '../lib/money';
 import { exportCsvReport, exportPdfReport } from '../lib/reports';
 import { decryptBackupJson, encryptBackupJson } from '../lib/cryptoBackup';
+import {
+  enableRoomSync,
+  isCloudConfigured,
+  joinRoomSync,
+} from '../lib/cloudSync';
 
 type Props = {
   household: Household;
   onUpdateHousehold: (next: Household) => Promise<boolean>;
   onLoadDemo: () => Promise<boolean>;
   onResetEmpty: () => Promise<boolean>;
+  onJoinHousehold: (household: Household) => Promise<boolean>;
+  onSyncNow: () => Promise<boolean>;
   isSaving: boolean;
 };
 
@@ -32,6 +39,8 @@ export default function HouseholdSettings({
   onUpdateHousehold,
   onLoadDemo,
   onResetEmpty,
+  onJoinHousehold,
+  onSyncNow,
   isSaving,
 }: Props) {
   const [householdNameInput, setHouseholdNameInput] = useState(household.name);
@@ -53,6 +62,13 @@ export default function HouseholdSettings({
   const [budgetInputs, setBudgetInputs] = useState<Record<string, string>>(
     () => getBudgetInputs(household),
   );
+  const [roomMode, setRoomMode] = useState<'create' | 'join'>('create');
+  const [roomPin, setRoomPin] = useState('');
+  const [roomCodeInput, setRoomCodeInput] = useState('');
+  const [cloudError, setCloudError] = useState('');
+  const [cloudMessage, setCloudMessage] = useState('');
+  const [cloudBusy, setCloudBusy] = useState(false);
+  const cloudConfigured = isCloudConfigured();
 
   if (lastHouseholdName !== household.name) {
     setLastHouseholdName(household.name);
@@ -176,8 +192,82 @@ export default function HouseholdSettings({
     await onUpdateHousehold({
       ...household,
       members: household.members.filter((m) => m.id !== memberId),
+      deletedIds: [...new Set([...(household.deletedIds ?? []), memberId])],
       updatedAt: new Date().toISOString().slice(0, 10),
     });
+  };
+
+  const handleEnableRoomSync = async (event: FormEvent) => {
+    event.preventDefault();
+    setCloudError('');
+    setCloudMessage('');
+    if (!/^\d{4}$/.test(roomPin.trim())) {
+      setCloudError('Enter a 4-digit room PIN.');
+      return;
+    }
+    setCloudBusy(true);
+    try {
+      const connected = await enableRoomSync(household, roomPin);
+      if (await onUpdateHousehold(connected)) {
+        setCloudMessage('Room sync is ready. Share the room code with your housemates.');
+      }
+    } catch (error) {
+      setCloudError(error instanceof Error ? error.message : 'Could not create a cloud room.');
+    } finally {
+      setCloudBusy(false);
+    }
+  };
+
+  const handleJoinRoom = async (event: FormEvent) => {
+    event.preventDefault();
+    setCloudError('');
+    setCloudMessage('');
+    if (!/^\d{4}$/.test(roomPin.trim())) {
+      setCloudError('Enter a 4-digit room PIN.');
+      return;
+    }
+    setCloudBusy(true);
+    try {
+      const joined = await joinRoomSync(roomCodeInput, roomPin);
+      if (await onJoinHousehold(joined)) {
+        setCloudMessage('Shared household saved as a new Space.');
+      }
+    } catch (error) {
+      setCloudError(error instanceof Error ? error.message : 'Could not join this room.');
+    } finally {
+      setCloudBusy(false);
+    }
+  };
+
+  const handleDisconnectRoom = async () => {
+    setCloudError('');
+    setCloudMessage('');
+    const saved = await onUpdateHousehold({
+      ...household,
+      syncRoomCode: undefined,
+      syncPinHash: undefined,
+      pendingSync: false,
+      lastSyncedAt: undefined,
+    });
+    if (saved) setCloudMessage('Cloud sync disconnected on this device.');
+  };
+
+  const handleCopyInvite = async () => {
+    const inviteUrl = new URL('https://roomsplit-app.pages.dev/');
+    inviteUrl.searchParams.set('join', household.syncRoomCode ?? '');
+    const hasInvitePin = /^\d{4}$/.test(roomPin.trim());
+    if (hasInvitePin) inviteUrl.searchParams.set('pin', roomPin.trim());
+    const message = hasInvitePin
+      ? `Join ${household.name} on RoomSplit: ${inviteUrl.toString()}`
+      : `Join ${household.name} on RoomSplit: ${inviteUrl.toString()}\nAsk me for the 4-digit room PIN.`;
+    try {
+      await navigator.clipboard.writeText(message);
+      setCloudError('');
+      setCloudMessage('WhatsApp invite copied to clipboard.');
+    } catch (error) {
+      setCloudError(error instanceof Error ? error.message : 'Could not copy the invite.');
+      setCloudMessage('');
+    }
   };
 
   const handleBackupFileChange = async (
@@ -291,6 +381,131 @@ export default function HouseholdSettings({
 
   return (
     <div className="stack">
+      <section className="card cloud-sync-card">
+        <h2>Live Multi-Device Sync (Room Code)</h2>
+        {!cloudConfigured && (
+          <p className="tx-sub">
+            Cloud sync is unavailable in this installation. Your household remains saved offline.
+          </p>
+        )}
+        {household.syncRoomCode && household.syncPinHash ? (
+          <>
+            <p className="row-between">
+              <span>Room Code</span>
+              <strong className="room-code">{household.syncRoomCode}</strong>
+            </p>
+            <p className="tx-sub">
+              {household.pendingSync
+                ? 'Changes are waiting to sync.'
+                : 'This Space is connected to its shared room.'}
+            </p>
+            <div className="form-group">
+              <label htmlFor="invite-room-pin">PIN to include in invite (optional)</label>
+              <input
+                id="invite-room-pin"
+                type="password"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={4}
+                value={roomPin}
+                onChange={(event) => setRoomPin(event.target.value.replace(/\D/g, '').slice(0, 4))}
+                placeholder="Enter PIN or ask friends to request it"
+              />
+            </div>
+            <div className="export-actions">
+              <button type="button" disabled={!cloudConfigured} onClick={() => void handleCopyInvite()}>
+                📋 Copy WhatsApp Invite Link
+              </button>
+              <button type="button" disabled={!cloudConfigured || cloudBusy} onClick={() => {
+                setCloudBusy(true);
+                void onSyncNow().then((synced) => {
+                  setCloudMessage(synced ? 'Room synced.' : '');
+                  setCloudError(synced ? '' : 'Room sync is still pending.');
+                }).catch((error: unknown) => {
+                  setCloudError(error instanceof Error ? error.message : 'Could not sync this room.');
+                }).finally(() => setCloudBusy(false));
+              }}>
+                🔄 Sync Now
+              </button>
+              <button type="button" disabled={isSaving || cloudBusy} onClick={() => void handleDisconnectRoom()}>
+                Disconnect Cloud Sync
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="export-actions">
+              <button
+                type="button"
+                aria-pressed={roomMode === 'create'}
+                onClick={() => setRoomMode('create')}
+              >
+                Create a Room
+              </button>
+              <button
+                type="button"
+                aria-pressed={roomMode === 'join'}
+                onClick={() => setRoomMode('join')}
+              >
+                🔗 Join a Friend's Room
+              </button>
+            </div>
+            {roomMode === 'create' ? (
+              <form onSubmit={(event) => void handleEnableRoomSync(event)} noValidate>
+                <div className="form-group">
+                  <label htmlFor="create-room-pin">Choose a 4-digit room PIN</label>
+                  <input
+                    id="create-room-pin"
+                    type="password"
+                    inputMode="numeric"
+                    autoComplete="new-password"
+                    maxLength={4}
+                    value={roomPin}
+                    onChange={(event) => setRoomPin(event.target.value.replace(/\D/g, '').slice(0, 4))}
+                    placeholder="4 digits"
+                  />
+                </div>
+                <button type="submit" className="primary" disabled={!cloudConfigured || cloudBusy || isSaving}>
+                  🚀 Go Live &amp; Generate Room Code
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={(event) => void handleJoinRoom(event)} noValidate>
+                <div className="form-group">
+                  <label htmlFor="join-room-code">Room Code</label>
+                  <input
+                    id="join-room-code"
+                    type="text"
+                    autoCapitalize="characters"
+                    value={roomCodeInput}
+                    onChange={(event) => setRoomCodeInput(event.target.value.toUpperCase())}
+                    placeholder="e.g., FLAT-4829"
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="join-room-pin">4-digit room PIN</label>
+                  <input
+                    id="join-room-pin"
+                    type="password"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={4}
+                    value={roomPin}
+                    onChange={(event) => setRoomPin(event.target.value.replace(/\D/g, '').slice(0, 4))}
+                    placeholder="4 digits"
+                  />
+                </div>
+                <button type="submit" className="primary" disabled={!cloudConfigured || cloudBusy}>
+                  Join Shared Household
+                </button>
+              </form>
+            )}
+          </>
+        )}
+        {cloudError && <p className="amount-neg" role="alert">{cloudError}</p>}
+        {cloudMessage && <p className="amount-pos" role="status">{cloudMessage}</p>}
+      </section>
+
       <section className="card">
         <h2>Household Profile</h2>
         <form onSubmit={handleHouseholdSubmit} noValidate>

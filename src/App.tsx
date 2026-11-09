@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import type { Household, Space, SpaceAccent } from './types';
 import HouseholdSettings from './components/HouseholdSettings';
@@ -25,6 +25,13 @@ import {
   calculateTotalSpending,
   suggestRepayments,
 } from './lib/balances';
+import {
+  isCloudConfigured,
+  joinRoomSync,
+  mergeHouseholds,
+  pushOrMergeRoom,
+  subscribeToRoom,
+} from './lib/cloudSync';
 
 type Tab = 'overview' | 'expenses' | 'repayments' | 'settings';
 
@@ -110,6 +117,45 @@ function splitHeroCurrency(cents: number): { whole: string; decimals: string } {
   };
 }
 
+function getRemoteHousehold(payload: unknown): Household | null {
+  let value = payload;
+  if (typeof value !== 'object' || value === null) return null;
+  if ('new' in value) value = value.new;
+  if (typeof value !== 'object' || value === null) return null;
+  for (const key of [
+    'household',
+    'payload',
+    'household_data',
+    'room_data',
+    'room_payload',
+    'household_json',
+    'data',
+  ]) {
+    if (key in value) {
+      value = (value as Record<string, unknown>)[key];
+      break;
+    }
+  }
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value) as unknown;
+    } catch {
+      return null;
+    }
+  }
+  if (
+    typeof value !== 'object' || value === null ||
+    !('id' in value) || typeof value.id !== 'string' ||
+    !('name' in value) || typeof value.name !== 'string' ||
+    !('currency' in value) || value.currency !== 'LKR' ||
+    !('members' in value) || !Array.isArray(value.members) ||
+    !('expenses' in value) || !Array.isArray(value.expenses) ||
+    !('repayments' in value) || !Array.isArray(value.repayments) ||
+    !('updatedAt' in value) || typeof value.updatedAt !== 'string'
+  ) return null;
+  return value as Household;
+}
+
 const CATEGORY_COLORS: Record<string, string> = {
   Groceries: '#D97706',
   Utilities: '#2A9D8F',
@@ -132,8 +178,25 @@ export default function App() {
   const [spacesOpen, setSpacesOpen] = useState(false);
   const [snapshot, setSnapshot] = useState<ShareSnapshot | null>(null);
   const [snapshotError, setSnapshotError] = useState('');
+  const [joinPrompt, setJoinPrompt] = useState<{ roomCode: string; pin: string } | null>(null);
+  const [joinError, setJoinError] = useState('');
+  const [joinBusy, setJoinBusy] = useState(false);
+  const [isOnline, setIsOnline] = useState(
+    () => typeof navigator === 'undefined' || navigator.onLine,
+  );
   const [periodFilter, setPeriodFilter] = useState<'all' | 'month' | 'week'>('all');
   const savingRef = useRef(false);
+  const syncingRef = useRef(false);
+  const syncRetryBlockedRef = useRef(false);
+  const householdRef = useRef<Household | null>(null);
+  const activeSpaceIdRef = useRef('');
+  const spacesRef = useRef(spaces);
+
+  useEffect(() => {
+    householdRef.current = household;
+    activeSpaceIdRef.current = activeSpaceId;
+    spacesRef.current = spaces;
+  }, [activeSpaceId, household, spaces]);
 
   useEffect(() => {
     let cancelled = false;
@@ -153,6 +216,17 @@ export default function App() {
         setSpaces(spacesIndex);
         setActiveSpaceIdState(activeSpace?.id ?? '');
         setHousehold(activeSpace?.household ?? savedHousehold);
+        const url = new URL(window.location.href);
+        const joinCode = url.searchParams.get('join');
+        if (joinCode) {
+          setJoinPrompt({
+            roomCode: joinCode,
+            pin: url.searchParams.get('pin') ?? '',
+          });
+          url.searchParams.delete('join');
+          url.searchParams.delete('pin');
+          window.history.replaceState({}, '', url);
+        }
         const snapshotParam = new URLSearchParams(window.location.search).get('snapshot');
         if (snapshotParam) {
           try {
@@ -183,17 +257,21 @@ export default function App() {
     setIsSaving(true);
     setStorageError('');
     setFailedNextState(null);
+    const stateToSave = nextState.syncRoomCode && nextState.syncPinHash
+      ? { ...nextState, pendingSync: true }
+      : nextState;
     try {
-      await saveHousehold(nextState);
-      setHousehold(nextState);
+      await saveHousehold(stateToSave);
+      if (stateToSave.pendingSync) syncRetryBlockedRef.current = false;
+      setHousehold(stateToSave);
       setSpaces((previous) => previous.map((space) => (
         space.id === activeSpaceId
-          ? { ...space, name: nextState.name, household: nextState }
+          ? { ...space, name: stateToSave.name, household: stateToSave }
           : space
       )));
       return true;
     } catch (error) {
-      setFailedNextState(nextState);
+      setFailedNextState(stateToSave);
       setStorageError(`Could not save changes: ${getErrorMessage(error)}`);
       return false;
     } finally {
@@ -291,6 +369,251 @@ export default function App() {
     }
   };
 
+  const persistCloudHousehold = useCallback(async (
+    targetSpaceId: string,
+    nextHousehold: Household,
+  ): Promise<void> => {
+    const targetSpace = spacesRef.current.find((space) => space.id === targetSpaceId);
+    if (!targetSpace) throw new Error('The synced Space could not be found.');
+    const saved = await saveSpace({
+      ...targetSpace,
+      name: nextHousehold.name,
+      household: nextHousehold,
+    });
+    setSpaces((previous) => previous.map((space) => (
+      space.id === targetSpaceId ? saved : space
+    )));
+    if (activeSpaceIdRef.current === targetSpaceId) setHousehold(saved.household);
+  }, []);
+
+  const addJoinedHousehold = async (joined: Household): Promise<boolean> => {
+    const id = crypto.randomUUID();
+    try {
+      const saved = await saveSpace({
+        id,
+        name: joined.name,
+        accent: joined.themeAccent ?? 'cyan',
+        household: joined,
+      });
+      await setActiveSpaceId(id);
+      setSpaces((previous) => [...previous, saved]);
+      setActiveSpaceIdState(id);
+      setHousehold(saved.household);
+      setSpacesOpen(false);
+      setActiveTab('overview');
+      setStorageError('');
+      return true;
+    } catch (error) {
+      setStorageError(`Could not save the joined household: ${getErrorMessage(error)}`);
+      return false;
+    }
+  };
+
+  const confirmJoinRoom = async () => {
+    if (!joinPrompt) return;
+    setJoinError('');
+    setJoinBusy(true);
+    try {
+      const joined = await joinRoomSync(joinPrompt.roomCode, joinPrompt.pin);
+      if (await addJoinedHousehold(joined)) setJoinPrompt(null);
+      else setJoinError('Could not save this shared household locally.');
+    } catch (error) {
+      setJoinError(error instanceof Error ? error.message : 'Could not join this room.');
+    } finally {
+      setJoinBusy(false);
+    }
+  };
+
+  const syncNow = async (): Promise<boolean> => {
+    if (!household || !activeSpaceId || syncingRef.current) return false;
+    const sentHousehold = household;
+    const spaceId = activeSpaceId;
+    syncingRef.current = true;
+    syncRetryBlockedRef.current = false;
+    try {
+      const result = await pushOrMergeRoom(sentHousehold);
+      if (
+        activeSpaceIdRef.current !== spaceId ||
+        householdRef.current?.syncRoomCode !== sentHousehold.syncRoomCode
+      ) return false;
+      const latest = householdRef.current;
+      if (!latest) return false;
+      const changedLocally = latest !== sentHousehold;
+      const merged = mergeHouseholds(latest, result, result.deletedIds ?? []);
+      const next = {
+        ...merged,
+        pendingSync: result.pendingSync || changedLocally,
+      };
+      if (result.pendingSync) syncRetryBlockedRef.current = true;
+      await persistCloudHousehold(spaceId, next);
+      return !next.pendingSync;
+    } catch (error) {
+      syncRetryBlockedRef.current = true;
+      setStorageError(`Could not save synced changes: ${getErrorMessage(error)}`);
+      return false;
+    } finally {
+      syncingRef.current = false;
+      if (
+        !syncRetryBlockedRef.current &&
+        typeof navigator !== 'undefined' && navigator.onLine &&
+        householdRef.current?.pendingSync
+      ) {
+        setHousehold((previous) => previous?.pendingSync
+          ? { ...previous }
+          : previous);
+      }
+    }
+  };
+
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      syncRetryBlockedRef.current = false;
+      setHousehold((previous) => previous?.pendingSync
+        ? { ...previous }
+        : previous);
+    };
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  useEffect(() => {
+    const currentHousehold = householdRef.current;
+    if (
+      !isCloudConfigured() || !currentHousehold?.syncRoomCode ||
+      !currentHousehold.syncPinHash || !activeSpaceId
+    ) return;
+    const roomCode = currentHousehold.syncRoomCode;
+    const spaceId = activeSpaceId;
+    let active = true;
+    try {
+      const unsubscribe = subscribeToRoom(roomCode, (payload) => {
+        const remote = getRemoteHousehold(payload);
+        const local = householdRef.current;
+        if (
+          !active || !remote || !local ||
+          activeSpaceIdRef.current !== spaceId ||
+          local.syncRoomCode !== roomCode ||
+          remote.syncRoomCode !== roomCode
+        ) return;
+        if (
+          remote.lastSyncedAt &&
+          remote.lastSyncedAt === local.lastSyncedAt
+        ) return;
+        const merged = mergeHouseholds(local, remote, remote.deletedIds ?? []);
+        void persistCloudHousehold(spaceId, { ...merged, pendingSync: true })
+          .catch((error: unknown) => {
+            setStorageError(`Could not save a live room update: ${getErrorMessage(error)}`);
+          });
+      });
+      if (!currentHousehold.pendingSync && !syncingRef.current) {
+        const initialHousehold = currentHousehold;
+        syncingRef.current = true;
+        void pushOrMergeRoom(initialHousehold)
+          .then(async (syncedHousehold) => {
+            const latest = householdRef.current;
+            if (
+              !latest || activeSpaceIdRef.current !== spaceId ||
+              latest.syncRoomCode !== roomCode
+            ) return;
+            const changedLocally = latest !== initialHousehold;
+            const merged = mergeHouseholds(
+              latest,
+              syncedHousehold,
+              syncedHousehold.deletedIds ?? [],
+            );
+            const next = {
+              ...merged,
+              pendingSync: syncedHousehold.pendingSync || changedLocally,
+            };
+            if (syncedHousehold.pendingSync) syncRetryBlockedRef.current = true;
+            await persistCloudHousehold(spaceId, next);
+          })
+          .catch((error: unknown) => {
+            syncRetryBlockedRef.current = true;
+            setStorageError(`Could not save initial room sync: ${getErrorMessage(error)}`);
+          })
+          .finally(() => {
+            syncingRef.current = false;
+            if (
+              !syncRetryBlockedRef.current &&
+              typeof navigator !== 'undefined' && navigator.onLine &&
+              householdRef.current?.pendingSync
+            ) {
+              setHousehold((previous) => previous?.pendingSync
+                ? { ...previous }
+                : previous);
+            }
+          });
+      }
+      return () => {
+        active = false;
+        unsubscribe();
+      };
+    } catch (error) {
+      const message = `Could not subscribe to live room updates: ${getErrorMessage(error)}`;
+      window.setTimeout(() => setStorageError(message), 0);
+      return;
+    }
+  }, [
+    activeSpaceId,
+    household?.syncRoomCode,
+    household?.syncPinHash,
+    persistCloudHousehold,
+  ]);
+
+  useEffect(() => {
+    if (
+      !isOnline || !isCloudConfigured() || !household?.pendingSync ||
+      !household.syncRoomCode || !household.syncPinHash || !activeSpaceId ||
+      syncingRef.current || syncRetryBlockedRef.current
+    ) return;
+    const sentHousehold = household;
+    const spaceId = activeSpaceId;
+    syncingRef.current = true;
+    void pushOrMergeRoom(sentHousehold)
+      .then(async (syncedHousehold) => {
+        const latest = householdRef.current;
+        if (
+          !latest || activeSpaceIdRef.current !== spaceId ||
+          latest.syncRoomCode !== sentHousehold.syncRoomCode
+        ) return;
+        const hasNewerLocalChanges = latest !== sentHousehold;
+        const merged = mergeHouseholds(
+          latest,
+          syncedHousehold,
+          syncedHousehold.deletedIds ?? [],
+        );
+        const next = {
+          ...merged,
+          pendingSync: syncedHousehold.pendingSync || hasNewerLocalChanges,
+        };
+        if (syncedHousehold.pendingSync) syncRetryBlockedRef.current = true;
+        await persistCloudHousehold(spaceId, next);
+      })
+      .catch((error: unknown) => {
+        syncRetryBlockedRef.current = true;
+        setStorageError(`Could not save sync status: ${getErrorMessage(error)}`);
+      })
+      .finally(() => {
+        syncingRef.current = false;
+        if (
+          !syncRetryBlockedRef.current &&
+          typeof navigator !== 'undefined' && navigator.onLine &&
+          householdRef.current?.pendingSync
+        ) {
+          setHousehold((previous) => previous?.pendingSync
+            ? { ...previous }
+            : previous);
+        }
+      });
+  }, [activeSpaceId, household, isOnline, persistCloudHousehold]);
+
   const dismissSnapshot = () => {
     setSnapshot(null);
     const url = new URL(window.location.href);
@@ -365,6 +688,14 @@ export default function App() {
 
   const getMemberName = (id: string) =>
     household.members.find((m) => m.id === id)?.name ?? 'Unknown';
+  const hasCloudRoom = Boolean(
+    isCloudConfigured() && household.syncRoomCode && household.syncPinHash,
+  );
+  const syncStatus = hasCloudRoom
+    ? household.pendingSync || !isOnline
+      ? '⏳ Offline (Pending Sync)'
+      : `🟢 Live: ${household.syncRoomCode}`
+    : '☁️ Local Only';
 
   return (
     <div className="app-shell" data-accent={household.themeAccent ?? 'cyan'}>
@@ -391,6 +722,14 @@ export default function App() {
         </button>
         <div className="pill-badges">
           <span className="icon-chip">{household.currency}</span>
+          <button
+            type="button"
+            className={`icon-chip sync-status-chip ${hasCloudRoom && !household.pendingSync && isOnline ? 'sync-live' : ''}`}
+            onClick={() => setActiveTab('settings')}
+            title="Manage household cloud sync"
+          >
+            {syncStatus}
+          </button>
           <span className="icon-chip">{household.expenses.length} bills</span>
         </div>
       </header>
@@ -420,6 +759,10 @@ export default function App() {
                 ))}
               </div>
               <button type="button" className="primary" onClick={() => void createSpace()}>+ Create Space</button>
+              <button type="button" onClick={() => {
+                setSpacesOpen(false);
+                setActiveTab('settings');
+              }}>Manage Live Sync</button>
               <div className="form-group accent-picker">
                 <span>Theme accent</span>
                 <div className="accent-options">
@@ -435,6 +778,78 @@ export default function App() {
                   ))}
                 </div>
               </div>
+            </section>
+          </div>
+        )}
+        {joinPrompt && (
+          <div className="spaces-modal-backdrop" onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !joinBusy) setJoinPrompt(null);
+          }}>
+            <section
+              className="spaces-modal card"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="join-room-title"
+            >
+              <div className="row-between">
+                <h2 id="join-room-title">Join Shared Household Room</h2>
+                <button
+                  type="button"
+                  disabled={joinBusy}
+                  onClick={() => setJoinPrompt(null)}
+                  aria-label="Close join dialog"
+                >×</button>
+              </div>
+              <p className="tx-sub">Join this room to collaborate on its shared expense ledger.</p>
+              <div className="form-group">
+                <label htmlFor="url-join-room-code">Room Code</label>
+                <input
+                  id="url-join-room-code"
+                  type="text"
+                  autoCapitalize="characters"
+                  value={joinPrompt.roomCode}
+                  onChange={(event) => setJoinPrompt({
+                    ...joinPrompt,
+                    roomCode: event.target.value.toUpperCase(),
+                  })}
+                />
+              </div>
+              <div className="form-group">
+                <label htmlFor="url-join-room-pin">4-digit PIN</label>
+                <input
+                  id="url-join-room-pin"
+                  type="password"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={4}
+                  value={joinPrompt.pin}
+                  onChange={(event) => setJoinPrompt({
+                    ...joinPrompt,
+                    pin: event.target.value.replace(/\D/g, '').slice(0, 4),
+                  })}
+                />
+              </div>
+              {joinError && <p className="amount-neg" role="alert">{joinError}</p>}
+              <div className="export-actions">
+                <button
+                  type="button"
+                  className="primary"
+                  disabled={joinBusy || !isCloudConfigured()}
+                  onClick={() => void confirmJoinRoom()}
+                >
+                  {joinBusy ? 'Joining…' : 'Join & Save as a Space'}
+                </button>
+                <button
+                  type="button"
+                  disabled={joinBusy}
+                  onClick={() => setJoinPrompt(null)}
+                >
+                  Cancel
+                </button>
+              </div>
+              {!isCloudConfigured() && (
+                <p className="tx-sub">Cloud sync is not configured in this installation.</p>
+              )}
             </section>
           </div>
         )}
@@ -845,6 +1260,8 @@ export default function App() {
             onUpdateHousehold={commitHousehold}
             onLoadDemo={() => commitHousehold(DEMO_HOUSEHOLD)}
             onResetEmpty={() => commitHousehold(createEmptyHousehold())}
+            onJoinHousehold={addJoinedHousehold}
+            onSyncNow={syncNow}
             isSaving={isSaving}
           />
         )}

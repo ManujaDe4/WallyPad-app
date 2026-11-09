@@ -30,6 +30,11 @@ export type Household = {
   updatedAt: string;
   categoryBudgetsCents?: Record<string, number>;
   themeAccent?: SpaceAccent;
+  syncRoomCode?: string;
+  syncPinHash?: string;
+  deletedIds?: string[];
+  lastSyncedAt?: string;
+  pendingSync?: boolean;
 };
 
 export type SpaceAccent = 'cyan' | 'emerald' | 'amber' | 'indigo';
