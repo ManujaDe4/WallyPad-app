@@ -191,6 +191,7 @@ export default function App() {
   const [isOnline, setIsOnline] = useState(
     () => typeof navigator === 'undefined' || navigator.onLine,
   );
+  const [liveSyncRoomCode, setLiveSyncRoomCode] = useState<string | null>(null);
   const [periodFilter, setPeriodFilter] = useState<'all' | 'month' | 'week'>('all');
   const savingRef = useRef(false);
   const syncingRef = useRef(false);
@@ -593,6 +594,33 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const roomCode = household?.syncRoomCode;
+    const hasCloudRoom = Boolean(
+      isCloudConfigured() && roomCode && household?.syncPinHash,
+    );
+    const isPending = Boolean(household?.pendingSync || !isOnline);
+
+    if (!hasCloudRoom || !roomCode) return;
+    if (!isPending) {
+      const timeoutId = window.setTimeout(
+        () => setLiveSyncRoomCode(roomCode),
+        0,
+      );
+      return () => window.clearTimeout(timeoutId);
+    }
+    if (liveSyncRoomCode !== roomCode) return;
+
+    const timeoutId = window.setTimeout(() => setLiveSyncRoomCode(null), 1000);
+    return () => window.clearTimeout(timeoutId);
+  }, [
+    household?.pendingSync,
+    household?.syncPinHash,
+    household?.syncRoomCode,
+    isOnline,
+    liveSyncRoomCode,
+  ]);
+
+  useEffect(() => {
     const currentHousehold = householdRef.current;
     if (
       !isCloudConfigured() || !currentHousehold?.syncRoomCode ||
@@ -801,11 +829,16 @@ export default function App() {
   const hasCloudRoom = Boolean(
     isCloudConfigured() && household.syncRoomCode && household.syncPinHash,
   );
-  const syncStatus = hasCloudRoom
-    ? household.pendingSync || !isOnline
-      ? '⏳ Offline (Pending Sync)'
-      : `🟢 Live: ${household.syncRoomCode}`
-    : '☁️ Local Only';
+  const isSyncPending = household.pendingSync || !isOnline;
+  const isSyncLive = hasCloudRoom && (
+    !isSyncPending || liveSyncRoomCode === household.syncRoomCode
+  );
+  const syncStatus = !hasCloudRoom ? '☁️' : isSyncLive ? '🟢' : '⏳';
+  const syncStatusLabel = !hasCloudRoom
+    ? 'Local only'
+    : isSyncLive
+      ? 'Live sync'
+      : 'Offline or sync pending';
 
   return (
     <div className="app-shell" data-accent={household.themeAccent ?? 'cyan'}>
@@ -824,23 +857,21 @@ export default function App() {
             </div>
             <div className="profile-meta">
               <h1 className="profile-title">{household.name}</h1>
-              <span className="profile-sub">
-                @RoomSplit • {household.members.length} Housemates · Switch Space
-              </span>
             </div>
+            <span className="profile-dropdown" aria-hidden="true">▾</span>
           </div>
         </button>
         <div className="pill-badges">
           <span className="icon-chip">{household.currency}</span>
           <button
             type="button"
-            className={`icon-chip sync-status-chip ${hasCloudRoom && !household.pendingSync && isOnline ? 'sync-live' : ''}`}
+            className={`icon-chip sync-status-chip ${isSyncLive ? 'sync-live' : ''}`}
             onClick={() => setActiveTab('settings')}
-            title="Manage household cloud sync"
+            aria-label={syncStatusLabel}
+            title={syncStatusLabel}
           >
             {syncStatus}
           </button>
-          <span className="icon-chip">{household.expenses.length} bills</span>
         </div>
       </header>
 
