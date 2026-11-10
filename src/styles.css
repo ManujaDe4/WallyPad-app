@@ -345,7 +345,6 @@ body {
         outline-offset: 2px;
     }
 
-    .home-tools,
     .share-actions,
     .export-actions {
         display: flex;
@@ -354,38 +353,6 @@ body {
         justify-content: space-between;
         gap: 0.55rem;
         margin-bottom: 0.9rem;
-    }
-
-    .period-filter {
-        display: flex;
-        gap: 0.15rem;
-        padding: 0.22rem;
-        border-radius: var(--radius-pill);
-        background: var(--surface);
-        box-shadow: var(--shadow-card);
-    }
-
-    .period-filter button {
-        padding: 0.45rem 0.62rem;
-        border: 0;
-        border-radius: var(--radius-pill);
-        background: transparent;
-        color: var(--muted);
-        font-size: 0.72rem;
-    }
-
-    .period-filter button.active {
-        background: var(--navy-pill);
-        color: #fff;
-    }
-
-    .report-button {
-        padding: 0.55rem 0.8rem;
-        border: 0;
-        border-radius: var(--radius-pill);
-        background: #e6f4f4;
-        color: #007d7b;
-        font-weight: 700;
     }
 
     .budget-meter {
@@ -574,6 +541,59 @@ body {
 /* ----------------------------------------------------------
    5. Hero Card
    ---------------------------------------------------------- */
+.filter-pill-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: 1rem;
+    overflow-x: auto;
+    white-space: nowrap;
+    flex-wrap: nowrap;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.filter-pill-bar::-webkit-scrollbar {
+    display: none;
+}
+
+.filter-pill-bar button {
+    flex-shrink: 0;
+}
+
+.period-filter {
+    display: flex;
+    flex-shrink: 0;
+    gap: 0.15rem;
+    padding: 0.22rem;
+    border-radius: var(--radius-pill);
+    background: var(--surface);
+    box-shadow: var(--shadow-card);
+}
+
+.period-filter button {
+    padding: 0.45rem 0.62rem;
+    border: 0;
+    border-radius: var(--radius-pill);
+    background: transparent;
+    color: var(--muted);
+    font-size: 0.72rem;
+}
+
+.period-filter button.active {
+    background: var(--navy-pill);
+    color: #fff;
+}
+
+.report-button {
+    padding: 0.55rem 0.8rem;
+    border: 0;
+    border-radius: var(--radius-pill);
+    background: #e6f4f4;
+    color: #007d7b;
+    font-weight: 700;
+}
+
 .hero-card {
     background: linear-gradient(135deg, #06b6d4 0%, #0284c7 100%);
     color: #ffffff;
@@ -634,6 +654,26 @@ body {
 .hero-sub {
     font-size: 0.8rem;
     opacity: 0.85;
+    margin: 0 0 1.15rem;
+}
+
+.hero-budget-track {
+    width: 100%;
+    height: 6px;
+    margin: 8px 0;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.hero-budget-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: #ffffff;
+    transition: width 180ms ease;
+}
+
+.hero-budget .hero-sub {
     margin: 0 0 1.15rem;
 }
 

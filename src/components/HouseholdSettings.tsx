@@ -45,6 +45,11 @@ export default function HouseholdSettings({
 }: Props) {
   const [householdNameInput, setHouseholdNameInput] = useState(household.name);
   const [lastHouseholdName, setLastHouseholdName] = useState(household.name);
+  const [monthlyBudgetInput, setMonthlyBudgetInput] = useState(
+    () => household.monthlyBudgetCents === undefined
+      ? ''
+      : centsToInputString(household.monthlyBudgetCents),
+  );
   const [householdError, setHouseholdError] = useState('');
   const [householdSavedMsg, setHouseholdSavedMsg] = useState('');
 
@@ -124,15 +129,36 @@ export default function HouseholdSettings({
       );
       return;
     }
+    const rawBudget = monthlyBudgetInput.trim();
+    let monthlyBudgetCents: number | undefined;
+    if (rawBudget) {
+      const parsedBudget = parseMoney(rawBudget, { allowZero: true });
+      if (parsedBudget.ok === false) {
+        setHouseholdError(`Monthly household budget: ${parsedBudget.error}`);
+        return;
+      }
+      if (parsedBudget.cents > 0) monthlyBudgetCents = parsedBudget.cents;
+    }
 
     setHouseholdError('');
     setHouseholdNameInput(trimmed);
-    const saved = await onUpdateHousehold({
+    const nextHousehold: Household = {
       ...household,
       name: trimmed,
       updatedAt: new Date().toISOString().slice(0, 10),
-    });
-    if (saved) setHouseholdSavedMsg('Household name updated.');
+    };
+    if (monthlyBudgetCents === undefined) {
+      delete nextHousehold.monthlyBudgetCents;
+    } else {
+      nextHousehold.monthlyBudgetCents = monthlyBudgetCents;
+    }
+    const saved = await onUpdateHousehold(nextHousehold);
+    if (saved) {
+      setMonthlyBudgetInput(monthlyBudgetCents === undefined
+        ? ''
+        : centsToInputString(monthlyBudgetCents));
+      setHouseholdSavedMsg('Household profile updated.');
+    }
   };
 
   const handleAddMember = async (e: FormEvent) => {
@@ -325,6 +351,7 @@ export default function HouseholdSettings({
         ...household,
         categoryBudgetsCents: undefined,
       }));
+      setMonthlyBudgetInput('');
     }
   };
 
@@ -335,6 +362,9 @@ export default function HouseholdSettings({
       setRestorePreview(null);
       setBackupError('');
       setBudgetInputs(getBudgetInputs(restorePreview));
+      setMonthlyBudgetInput(restorePreview.monthlyBudgetCents === undefined
+        ? ''
+        : centsToInputString(restorePreview.monthlyBudgetCents));
     }
   };
 
@@ -532,6 +562,28 @@ export default function HouseholdSettings({
                 {householdSavedMsg}
               </small>
             )}
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="monthly-household-budget">
+              Monthly Household Budget (Optional)
+            </label>
+            <input
+              id="monthly-household-budget"
+              type="text"
+              inputMode="decimal"
+              value={monthlyBudgetInput}
+              onChange={(event) => {
+                setMonthlyBudgetInput(event.target.value);
+                setHouseholdError('');
+                setHouseholdSavedMsg('');
+              }}
+              placeholder="e.g., 50000.00"
+              aria-describedby="monthly-household-budget-help"
+            />
+            <small id="monthly-household-budget-help" className="tx-sub">
+              Enter an amount in LKR, or leave blank to remove the budget.
+            </small>
           </div>
 
           <div className="form-group">

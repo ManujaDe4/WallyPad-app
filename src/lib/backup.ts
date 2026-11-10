@@ -109,6 +109,18 @@ export function validateBackupJson(rawText: string): BackupValidationResult {
       categoryBudgetsCents[category] = amount;
     }
   }
+  let monthlyBudgetCents: number | undefined;
+  if ('monthlyBudgetCents' in rawHousehold) {
+    if (
+      typeof rawHousehold.monthlyBudgetCents !== 'number' ||
+      !Number.isSafeInteger(rawHousehold.monthlyBudgetCents) ||
+      rawHousehold.monthlyBudgetCents <= 0 ||
+      rawHousehold.monthlyBudgetCents > MAX_AMOUNT_CENTS
+    ) {
+      return validationError('Household monthly budget is invalid.');
+    }
+    monthlyBudgetCents = rawHousehold.monthlyBudgetCents;
+  }
   let themeAccent: SpaceAccent | undefined;
   if ('themeAccent' in rawHousehold) {
     if (
@@ -302,6 +314,7 @@ export function validateBackupJson(rawText: string): BackupValidationResult {
       expenses,
       repayments,
       updatedAt: rawHousehold.updatedAt,
+      ...(monthlyBudgetCents !== undefined ? { monthlyBudgetCents } : {}),
       ...(deletedIds ? { deletedIds } : {}),
       ...(categoryBudgetsCents ? { categoryBudgetsCents } : {}),
       ...(themeAccent ? { themeAccent } : {}),

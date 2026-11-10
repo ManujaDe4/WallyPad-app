@@ -788,10 +788,17 @@ export default function App() {
     return true;
   });
   const totalSpendingCents = filteredExpenses.reduce((sum, expense) => sum + expense.amountCents, 0);
+  const currentMonthExpenses = household.expenses.filter((expense) =>
+    expense.date.startsWith(currentMonth),
+  );
+  const currentMonthSpendingCents = currentMonthExpenses.reduce(
+    (sum, expense) => sum + expense.amountCents,
+    0,
+  );
   const allTimeSpendingCents = calculateTotalSpending(household);
   const reportSummaries = buildWeeklyAndMonthlySummaries(household.expenses);
   const monthCategoryTotals = new Map<string, number>();
-  for (const expense of household.expenses.filter((entry) => entry.date.startsWith(currentMonth))) {
+  for (const expense of currentMonthExpenses) {
     monthCategoryTotals.set(
       expense.category,
       (monthCategoryTotals.get(expense.category) ?? 0) + expense.amountCents,
@@ -800,7 +807,15 @@ export default function App() {
   const snapshotTransfers = snapshot?.transfers ?? [];
   const memberBalances = calculateBalances(household);
   const suggestedTransfers = suggestRepayments(memberBalances);
-  const heroParts = splitHeroCurrency(totalSpendingCents);
+  const hasMonthlyBudget = (household.monthlyBudgetCents ?? 0) > 0;
+  const monthlyBudgetCents = household.monthlyBudgetCents ?? 0;
+  const remainingWalletCents = monthlyBudgetCents - currentMonthSpendingCents;
+  const budgetSpentPercent = hasMonthlyBudget
+    ? Math.min((currentMonthSpendingCents / monthlyBudgetCents) * 100, 100)
+    : 0;
+  const heroParts = splitHeroCurrency(
+    hasMonthlyBudget ? remainingWalletCents : totalSpendingCents,
+  );
 
   // Calculate settled (repayment) totals
   const totalRepaidCents = household.repayments.reduce(
@@ -1085,7 +1100,7 @@ export default function App() {
         )}
         {!snapshot && activeTab === 'overview' && (
           <section>
-            <div className="home-tools">
+            <div className="filter-pill-bar">
               <div className="period-filter" role="group" aria-label="Spending period">
                 {([
                   ['all', 'All Time'],
@@ -1112,18 +1127,45 @@ export default function App() {
             {/* Cyan Gradient Hero Card */}
             <div className="hero-card">
               <div className="hero-label">
-                <span>{periodFilter === 'all' ? 'Total Household Spending' : periodFilter === 'month' ? 'This Month' : 'This Week'}</span>
+                <span>{hasMonthlyBudget
+                  ? 'Remaining Monthly Wallet'
+                  : periodFilter === 'all'
+                    ? 'Total Household Spending'
+                    : periodFilter === 'month'
+                      ? 'This Month'
+                      : 'This Week'}</span>
                 <span>{filteredExpenses.length} Bills</span>
               </div>
               <div className="hero-amount">
                 {heroParts.whole}
                 <span className="cents-part">{heroParts.decimals}</span>
               </div>
-              <p className="hero-sub">
-                {suggestedTransfers.length === 0
-                  ? 'All housemate balances are settled'
-                  : `${suggestedTransfers.length} suggested transfer(s) to settle up`}
-              </p>
+              {hasMonthlyBudget ? (
+                <div className="hero-budget">
+                  <div
+                    className="hero-budget-track"
+                    role="progressbar"
+                    aria-label="Monthly household budget spent"
+                    aria-valuemin={0}
+                    aria-valuemax={monthlyBudgetCents}
+                    aria-valuenow={Math.min(currentMonthSpendingCents, monthlyBudgetCents)}
+                  >
+                    <div
+                      className="hero-budget-fill"
+                      style={{ width: `${budgetSpentPercent}%` }}
+                    />
+                  </div>
+                  <p className="hero-sub">
+                    Spent {formatMoney(currentMonthSpendingCents)} of {formatMoney(monthlyBudgetCents)} limit
+                  </p>
+                </div>
+              ) : (
+                <p className="hero-sub">
+                  {suggestedTransfers.length === 0
+                    ? 'All housemate balances are settled'
+                    : `${suggestedTransfers.length} suggested transfer(s) to settle up`}
+                </p>
+              )}
               <div className="hero-actions">
                 <button
                   type="button"

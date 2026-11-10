@@ -326,6 +326,23 @@ describe('balances and repayments', () => {
 });
 
 describe('backup validation', () => {
+  test('preserves valid monthly wallet budgets and rejects invalid values', () => {
+    const backup = createBackup();
+    backup.household.monthlyBudgetCents = 2_500_000;
+    const validResult = validateBackupJson(JSON.stringify(backup));
+
+    expect(validResult.ok).toBe(true);
+    if (validResult.ok) {
+      expect(validResult.household.monthlyBudgetCents).toBe(2_500_000);
+    }
+
+    backup.household.monthlyBudgetCents = 0;
+    expect(validateBackupJson(JSON.stringify(backup))).toMatchObject({
+      ok: false,
+      error: 'Household monthly budget is invalid.',
+    });
+  });
+
   test('rejects expense payers and shares that reference missing members', () => {
     const invalidPayer = createBackup();
     invalidPayer.household.expenses[0].paidById = 'missing';

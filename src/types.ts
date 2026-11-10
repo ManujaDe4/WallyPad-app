@@ -29,6 +29,7 @@ export type Household = {
   expenses: Expense[];
   repayments: Repayment[];
   updatedAt: string;
+  monthlyBudgetCents?: number;
   categoryBudgetsCents?: Record<string, number>;
   themeAccent?: SpaceAccent;
   syncRoomCode?: string;
