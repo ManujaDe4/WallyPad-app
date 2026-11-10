@@ -413,7 +413,7 @@ export default function ExpenseManager({
                       gap: '0.4rem',
                       padding: '0.35rem 0.7rem',
                       borderRadius: '999px',
-                      background: checked ? '#e0f2fe' : '#ffffff',
+                      background: checked ? 'var(--accent-soft)' : 'var(--bg-surface)',
                       border: `1px solid ${checked ? 'var(--cyan-main)' : 'var(--border)'}`,
                       cursor: 'pointer',
                       fontSize: '0.84rem',
@@ -436,7 +436,7 @@ export default function ExpenseManager({
           {splitMode === 'equal' && equalPreviewResult?.ok && (
             <div
               style={{
-                background: '#f0f9ff',
+                background: 'var(--accent-soft)',
                 padding: '0.75rem 0.9rem',
                 borderRadius: '12px',
                 marginBottom: '0.85rem',
@@ -456,7 +456,7 @@ export default function ExpenseManager({
                   <span
                     key={s.memberId}
                     className="badge"
-                    style={{ background: '#ffffff' }}
+                    style={{ background: 'var(--bg-surface)' }}
                   >
                     {getMemberName(s.memberId)}:{' '}
                     <strong>{formatMoney(s.amountCents)}</strong>

@@ -173,6 +173,10 @@ export default function App() {
     needRefresh: [needRefresh, setNeedRefresh],
     updateServiceWorker,
   } = useRegisterSW();
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    const storedTheme = localStorage.getItem('roomsplit_theme');
+    return storedTheme === 'dark' ? 'dark' : 'light';
+  });
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [household, setHousehold] = useState<Household | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -209,6 +213,11 @@ export default function App() {
   const spacesRef = useRef(spaces);
   const autoJoinKeyRef = useRef('');
   const onboardingSpaceIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('roomsplit_theme', theme);
+  }, [theme]);
 
   useEffect(() => {
     householdRef.current = household;
@@ -1492,7 +1501,7 @@ export default function App() {
                       <div
                         className="tx-avatar"
                         style={{
-                          background: '#fef2f2',
+                          background: 'var(--negative-bg)',
                           color: 'var(--negative)',
                         }}
                       >
@@ -1581,6 +1590,8 @@ export default function App() {
           <HouseholdSettings
             key={activeSpaceId}
             household={household}
+            theme={theme}
+            setTheme={setTheme}
             onUpdateHousehold={commitHousehold}
             onLoadDemo={() => commitHousehold(DEMO_HOUSEHOLD)}
             onResetEmpty={() => commitHousehold(createEmptyHousehold())}

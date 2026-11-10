@@ -14,6 +14,8 @@ import {
 
 type Props = {
   household: Household;
+  theme: 'light' | 'dark';
+  setTheme: (theme: 'light' | 'dark') => void;
   onUpdateHousehold: (next: Household) => Promise<boolean>;
   onLoadDemo: () => Promise<boolean>;
   onResetEmpty: () => Promise<boolean>;
@@ -37,6 +39,8 @@ function getBudgetInputs(household: Household): Record<string, string> {
 
 export default function HouseholdSettings({
   household,
+  theme,
+  setTheme,
   onUpdateHousehold,
   onLoadDemo,
   onResetEmpty,
@@ -414,6 +418,31 @@ export default function HouseholdSettings({
 
   return (
     <div className="stack">
+      <section className="card theme-settings-card">
+        <div>
+          <h2>App Theme</h2>
+          <p className="tx-sub">Choose a comfortable appearance for RoomSplit.</p>
+        </div>
+        <div className="theme-toggle" role="group" aria-label="App theme">
+          <button
+            type="button"
+            className={theme === 'light' ? 'active' : ''}
+            aria-pressed={theme === 'light'}
+            onClick={() => setTheme('light')}
+          >
+            🌞 Light Mode
+          </button>
+          <button
+            type="button"
+            className={theme === 'dark' ? 'active' : ''}
+            aria-pressed={theme === 'dark'}
+            onClick={() => setTheme('dark')}
+          >
+            🌙 Dark Mode
+          </button>
+        </div>
+      </section>
+
       <section className="card cloud-sync-card">
         <h2>Live Multi-Device Sync (Room Code)</h2>
         {!cloudConfigured && (
