@@ -5,6 +5,7 @@ import { exportBackupFile, validateBackupJson } from '../lib/backup';
 import { centsToInputString, parseMoney } from '../lib/money';
 import { exportCsvReport, exportPdfReport } from '../lib/reports';
 import { decryptBackupJson, encryptBackupJson } from '../lib/cryptoBackup';
+import { getLocalMemberId } from '../lib/identity';
 import {
   enableRoomSync,
   isCloudConfigured,
@@ -74,6 +75,8 @@ export default function HouseholdSettings({
   const [cloudMessage, setCloudMessage] = useState('');
   const [cloudBusy, setCloudBusy] = useState(false);
   const cloudConfigured = isCloudConfigured();
+  const myMemberId = getLocalMemberId(household.id);
+  const isAdmin = household.adminId === undefined || myMemberId === household.adminId;
 
   if (lastHouseholdName !== household.name) {
     setLastHouseholdName(household.name);
@@ -545,6 +548,7 @@ export default function HouseholdSettings({
               id="household-name"
               type="text"
               value={householdNameInput}
+              disabled={!isAdmin}
               onChange={(e) => {
                 setHouseholdNameInput(e.target.value);
                 setHouseholdError('');
@@ -573,6 +577,7 @@ export default function HouseholdSettings({
               type="text"
               inputMode="decimal"
               value={monthlyBudgetInput}
+              disabled={!isAdmin}
               onChange={(event) => {
                 setMonthlyBudgetInput(event.target.value);
                 setHouseholdError('');
@@ -596,9 +601,11 @@ export default function HouseholdSettings({
             />
           </div>
 
-          <button type="submit" className="primary" disabled={isSaving}>
-            Save Profile
-          </button>
+          {isAdmin && (
+            <button type="submit" className="primary" disabled={isSaving}>
+              Save Profile
+            </button>
+          )}
         </form>
       </section>
 
@@ -716,17 +723,19 @@ export default function HouseholdSettings({
                       >
                         Rename
                       </button>
-                      <button
-                        type="button"
-                        disabled={isSaving || referenced}
-                        onClick={() => void handleDeleteMember(member.id)}
-                        style={{
-                          opacity: referenced ? 0.45 : 1,
-                          cursor: referenced ? 'not-allowed' : 'pointer',
-                        }}
-                      >
-                        Delete
-                      </button>
+                      {(isAdmin || myMemberId === member.id) && (
+                        <button
+                          type="button"
+                          disabled={isSaving || referenced}
+                          onClick={() => void handleDeleteMember(member.id)}
+                          style={{
+                            opacity: referenced ? 0.45 : 1,
+                            cursor: referenced ? 'not-allowed' : 'pointer',
+                          }}
+                        >
+                          Delete
+                        </button>
+                      )}
                     </div>
                   </>
                 )}
@@ -853,52 +862,54 @@ export default function HouseholdSettings({
         )}
       </section>
 
-      <section className="card" style={{ marginTop: '0.5rem' }}>
-        <h2>Demo &amp; Reset Presets</h2>
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <button
-            type="button"
-            disabled={isSaving}
-            onClick={() => void runReplacement('empty')}
-          >
-            Start Empty Ledger
-          </button>
-          <button
-            type="button"
-            disabled={isSaving}
-            onClick={() => void runReplacement('demo')}
-          >
-            Restore Demo Ledger
-          </button>
-        </div>
-        {pendingReplacement && (
-          <div className="card" role="alert">
-            <p>
-              {pendingReplacement === 'empty'
-                ? 'Start Empty Ledger'
-                : 'Restore Demo Ledger'}{' '}
-              will replace the current household and its records. Continue?
-            </p>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button
-                type="button"
-                className="danger"
-                disabled={isSaving}
-                onClick={() => void confirmReplacement()}
-              >
-                Confirm Replace
-              </button>
-              <button
-                type="button"
-                disabled={isSaving}
-                onClick={() => setPendingReplacement(null)}
-              >
-                Cancel
-              </button>
-            </div>
+      {isAdmin && (
+        <section className="card" style={{ marginTop: '0.5rem' }}>
+          <h2>Demo &amp; Reset Presets</h2>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              disabled={isSaving}
+              onClick={() => void runReplacement('empty')}
+            >
+              Start Empty Ledger
+            </button>
+            <button
+              type="button"
+              disabled={isSaving}
+              onClick={() => void runReplacement('demo')}
+            >
+              Restore Demo Ledger
+            </button>
           </div>
-        )}
-      </section>
+          {pendingReplacement && (
+            <div className="card" role="alert">
+              <p>
+                {pendingReplacement === 'empty'
+                  ? 'Start Empty Ledger'
+                  : 'Restore Demo Ledger'}{' '}
+                will replace the current household and its records. Continue?
+              </p>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button
+                  type="button"
+                  className="danger"
+                  disabled={isSaving}
+                  onClick={() => void confirmReplacement()}
+                >
+                  Confirm Replace
+                </button>
+                <button
+                  type="button"
+                  disabled={isSaving}
+                  onClick={() => setPendingReplacement(null)}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }

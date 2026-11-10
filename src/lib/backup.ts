@@ -73,6 +73,13 @@ export function validateBackupJson(rawText: string): BackupValidationResult {
   ) {
     return validationError('Household profile is invalid.');
   }
+  let adminId: string | undefined;
+  if ('adminId' in rawHousehold) {
+    if (typeof rawHousehold.adminId !== 'string' || !rawHousehold.adminId.trim()) {
+      return validationError('Household admin ID is invalid.');
+    }
+    adminId = rawHousehold.adminId;
+  }
   if (
     !Array.isArray(rawHousehold.members) ||
     !Array.isArray(rawHousehold.expenses) ||
@@ -314,6 +321,7 @@ export function validateBackupJson(rawText: string): BackupValidationResult {
       expenses,
       repayments,
       updatedAt: rawHousehold.updatedAt,
+      ...(adminId ? { adminId } : {}),
       ...(monthlyBudgetCents !== undefined ? { monthlyBudgetCents } : {}),
       ...(deletedIds ? { deletedIds } : {}),
       ...(categoryBudgetsCents ? { categoryBudgetsCents } : {}),

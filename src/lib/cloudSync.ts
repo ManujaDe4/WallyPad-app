@@ -74,7 +74,7 @@ export function generateRoomCode(householdName: string): string {
     .replace(/[^A-Z]/g, '')
     .slice(0, 4)
     .padEnd(4, 'X');
-  const suffix = Math.floor(Math.random() * 10_000).toString().padStart(4, '0');
+  const suffix = Math.floor(Math.random() * 9_000 + 1_000).toString();
   return `${prefix}-${suffix}`;
 }
 

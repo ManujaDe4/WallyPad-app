@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import type { Backup, Expense, Household } from '../../types';
 import { calculateBalances, calculateTotalSpending, suggestRepayments } from '../balances';
 import { validateBackupJson } from '../backup';
@@ -11,7 +11,7 @@ import {
   encodeShareSnapshot,
 } from '../reports';
 import { decryptBackupJson, encryptBackupJson } from '../cryptoBackup';
-import { hashPin, mergeHouseholds } from '../cloudSync';
+import { generateRoomCode, hashPin, mergeHouseholds } from '../cloudSync';
 
 function createExpense(
   id: string,
@@ -326,14 +326,27 @@ describe('balances and repayments', () => {
 });
 
 describe('backup validation', () => {
+  test('generates room codes from the first four letters and a four-digit suffix', () => {
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    try {
+      expect(generateRoomCode('Nugegoda')).toBe('NUGE-5500');
+      expect(generateRoomCode('My Flat')).toBe('MYFL-5500');
+      expect(generateRoomCode('Us')).toBe('USXX-5500');
+    } finally {
+      random.mockRestore();
+    }
+  });
+
   test('preserves valid monthly wallet budgets and rejects invalid values', () => {
     const backup = createBackup();
     backup.household.monthlyBudgetCents = 2_500_000;
+    backup.household.adminId = 'm1';
     const validResult = validateBackupJson(JSON.stringify(backup));
 
     expect(validResult.ok).toBe(true);
     if (validResult.ok) {
       expect(validResult.household.monthlyBudgetCents).toBe(2_500_000);
+      expect(validResult.household.adminId).toBe('m1');
     }
 
     backup.household.monthlyBudgetCents = 0;

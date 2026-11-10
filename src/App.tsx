@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { FormEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import type { Household, LocalIdentity, Member, Space, SpaceAccent } from './types';
 import HouseholdSettings from './components/HouseholdSettings';
@@ -35,6 +37,7 @@ import {
   pushOrMergeRoom,
   subscribeToRoom,
 } from './lib/cloudSync';
+import { setLocalMemberId } from './lib/identity';
 
 type Tab = 'overview' | 'expenses' | 'repayments' | 'settings';
 
@@ -179,6 +182,11 @@ export default function App() {
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [activeSpaceId, setActiveSpaceIdState] = useState('');
   const [spacesOpen, setSpacesOpen] = useState(false);
+  const [creatingSpace, setCreatingSpace] = useState(false);
+  const [newSpaceName, setNewSpaceName] = useState('');
+  const [newSpaceNickname, setNewSpaceNickname] = useState('');
+  const [createSpaceError, setCreateSpaceError] = useState('');
+  const [createSpaceBusy, setCreateSpaceBusy] = useState(false);
   const [snapshot, setSnapshot] = useState<ShareSnapshot | null>(null);
   const [snapshotError, setSnapshotError] = useState('');
   const [joinPrompt, setJoinPrompt] = useState<{ roomCode: string; pin: string } | null>(null);
@@ -319,6 +327,12 @@ export default function App() {
     }
   };
 
+  const closeSpaces = () => {
+    setSpacesOpen(false);
+    setCreatingSpace(false);
+    setCreateSpaceError('');
+  };
+
   const switchSpace = async (spaceId: string) => {
     if (savingRef.current) return;
     try {
@@ -327,7 +341,7 @@ export default function App() {
       if (next) {
         setActiveSpaceIdState(spaceId);
         setHousehold(next.household);
-        setSpacesOpen(false);
+        closeSpaces();
         setStorageError('');
       }
     } catch (error) {
@@ -335,32 +349,54 @@ export default function App() {
     }
   };
 
-  const createSpace = async () => {
-    if (savingRef.current) return;
+  const createSpace = async (event: FormEvent) => {
+    event.preventDefault();
+    const name = newSpaceName.trim();
+    const nickname = newSpaceNickname.trim();
+    if (!name || !nickname) {
+      setCreateSpaceError('Enter both a Space name and your nickname.');
+      return;
+    }
+    if (name.length > 80 || nickname.length > 80) {
+      setCreateSpaceError('Names must be 80 characters or fewer.');
+      return;
+    }
+    if (savingRef.current || createSpaceBusy) return;
+    setCreateSpaceBusy(true);
+    setCreateSpaceError('');
     const id = crypto.randomUUID();
+    const creator: Member = { id: crypto.randomUUID(), name: nickname };
     const nextHousehold: Household = {
       id,
-      name: `New Space ${spaces.length + 1}`,
+      name,
       currency: 'LKR',
-      members: [],
+      members: [creator],
       expenses: [],
       repayments: [],
+      adminId: creator.id,
       updatedAt: new Date().toISOString().slice(0, 10),
     };
     try {
+      setLocalMemberId(id, creator.id);
       const saved = await saveSpace({
         id,
-        name: nextHousehold.name,
+        name,
         accent: 'cyan',
         household: nextHousehold,
       });
       await setActiveSpaceId(id);
+      await saveHousehold(saved.household);
       setSpaces((previous) => [...previous, saved]);
       setActiveSpaceIdState(id);
       setHousehold(saved.household);
       setSpacesOpen(false);
+      setCreatingSpace(false);
+      setNewSpaceName('');
+      setNewSpaceNickname('');
     } catch (error) {
-      setStorageError(`Could not create Space: ${getErrorMessage(error)}`);
+      setCreateSpaceError(`Could not create Space: ${getErrorMessage(error)}`);
+    } finally {
+      setCreateSpaceBusy(false);
     }
   };
 
@@ -399,8 +435,10 @@ export default function App() {
   const addJoinedHousehold = useCallback(async (
     joined: Household,
     id: string = crypto.randomUUID(),
+    localMemberId?: string,
   ): Promise<boolean> => {
     try {
+      if (localMemberId) setLocalMemberId(joined.id, localMemberId);
       const saved = await saveSpace({
         id,
         name: joined.name,
@@ -425,11 +463,13 @@ export default function App() {
     const identity = await loadLocalIdentity();
     window.history.replaceState({}, document.title, window.location.pathname);
     setJoinBusy(false);
-    const identityMember = identity && joined.members.some(
+    const identityMember = identity && joined.members.find(
       (member) => member.name.trim().toLowerCase() === identity.name.trim().toLowerCase(),
     );
     if (identityMember) {
-      if (await addJoinedHousehold(joined)) setJoinPrompt(null);
+      if (await addJoinedHousehold(joined, crypto.randomUUID(), identityMember.id)) {
+        setJoinPrompt(null);
+      }
       else setJoinError('Could not save this shared household locally.');
       return;
     }
@@ -501,7 +541,7 @@ export default function App() {
       await saveLocalIdentity({ name: nickname, avatar });
       const spaceId = onboardingSpaceIdRef.current ?? crypto.randomUUID();
       onboardingSpaceIdRef.current = spaceId;
-      if (!await addJoinedHousehold(nextHousehold, spaceId)) {
+      if (!await addJoinedHousehold(nextHousehold, spaceId, member.id)) {
         throw new Error('Could not save the joined household locally.');
       }
       const syncedHousehold = await pushOrMergeRoom(nextHousehold);
@@ -891,14 +931,18 @@ export default function App() {
       </header>
 
       <main>
-        {spacesOpen && (
+        {spacesOpen && createPortal(
           <div className="spaces-modal-backdrop" onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setSpacesOpen(false);
+            if (event.target === event.currentTarget) closeSpaces();
           }}>
             <section className="spaces-modal card" role="dialog" aria-modal="true" aria-labelledby="spaces-title">
               <div className="row-between">
                 <h2 id="spaces-title">Your Spaces</h2>
-                <button type="button" onClick={() => setSpacesOpen(false)} aria-label="Close Spaces">×</button>
+                <button
+                  type="button"
+                  onClick={closeSpaces}
+                  aria-label="Close Spaces"
+                >×</button>
               </div>
               <div className="space-list">
                 {spaces.map((space) => (
@@ -914,30 +958,110 @@ export default function App() {
                   </div>
                 ))}
               </div>
-              <button type="button" className="primary" onClick={() => void createSpace()}>+ Create Space</button>
-              <button type="button" onClick={() => {
-                setSpacesOpen(false);
-                setActiveTab('settings');
-              }}>Manage Live Sync</button>
-              <div className="form-group accent-picker">
-                <span>Theme accent</span>
-                <div className="accent-options">
-                  {(['cyan', 'emerald', 'amber', 'indigo'] as const).map((accent) => (
-                    <button
-                      key={accent}
-                      type="button"
-                      aria-label={`${accent} accent`}
-                      aria-pressed={(household.themeAccent ?? 'cyan') === accent}
-                      className={`accent-dot ${accent}`}
-                      onClick={() => void changeAccent(accent)}
+              {creatingSpace ? (
+                <form
+                  className="create-space-form"
+                  onSubmit={(event) => void createSpace(event)}
+                  noValidate
+                >
+                  <h3>Create a new Space</h3>
+                  <div className="form-group">
+                    <label htmlFor="new-space-name">Space Name</label>
+                    <input
+                      id="new-space-name"
+                      type="text"
+                      maxLength={80}
+                      autoComplete="organization"
+                      value={newSpaceName}
+                      onChange={(event) => {
+                        setNewSpaceName(event.target.value);
+                        setCreateSpaceError('');
+                      }}
+                      placeholder="e.g., Nugegoda Flat"
+                      required
                     />
-                  ))}
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="new-space-nickname">Your Nickname</label>
+                    <input
+                      id="new-space-nickname"
+                      type="text"
+                      maxLength={80}
+                      autoComplete="name"
+                      value={newSpaceNickname}
+                      onChange={(event) => {
+                        setNewSpaceNickname(event.target.value);
+                        setCreateSpaceError('');
+                      }}
+                      placeholder="e.g., Manuja"
+                      required
+                    />
+                  </div>
+                  {createSpaceError && (
+                    <p className="amount-neg" role="alert">{createSpaceError}</p>
+                  )}
+                  <div className="create-space-actions">
+                    <button type="submit" className="primary" disabled={createSpaceBusy}>
+                      {createSpaceBusy ? 'Creating…' : 'Create Space'}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={createSpaceBusy}
+                      onClick={() => {
+                        setCreatingSpace(false);
+                        setCreateSpaceError('');
+                        setNewSpaceName('');
+                        setNewSpaceNickname('');
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <button
+                  type="button"
+                  className="primary create-space-trigger"
+                  onClick={() => {
+                    setCreateSpaceError('');
+                    setCreatingSpace(true);
+                  }}
+                >
+                  + Create New Space
+                </button>
+              )}
+              <button
+                type="button"
+                className="space-manage-sync"
+                onClick={() => {
+                  closeSpaces();
+                  setActiveTab('settings');
+                }}
+              >
+                Manage Live Sync
+              </button>
+              {!creatingSpace && (
+                <div className="form-group accent-picker">
+                  <span>Theme accent</span>
+                  <div className="accent-options">
+                    {(['cyan', 'emerald', 'amber', 'indigo'] as const).map((accent) => (
+                      <button
+                        key={accent}
+                        type="button"
+                        aria-label={`${accent} accent`}
+                        aria-pressed={(household.themeAccent ?? 'cyan') === accent}
+                        className={`accent-dot ${accent}`}
+                        onClick={() => void changeAccent(accent)}
+                      />
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
             </section>
-          </div>
+          </div>,
+          document.body,
         )}
-        {joinPrompt && (
+        {joinPrompt && createPortal(
           <div className="spaces-modal-backdrop" onMouseDown={(event) => {
             if (event.target === event.currentTarget && !joinBusy) setJoinPrompt(null);
           }}>
@@ -1007,9 +1131,10 @@ export default function App() {
                 <p className="tx-sub">Cloud sync is not configured in this installation.</p>
               )}
             </section>
-          </div>
+          </div>,
+          document.body,
         )}
-        {onboardingHousehold && (
+        {onboardingHousehold && createPortal(
           <OnboardingModal
             householdName={onboardingHousehold.name}
             initialName={onboardingIdentity?.name ?? ''}
@@ -1022,7 +1147,8 @@ export default function App() {
               setOnboardingHousehold(null);
               setOnboardingIdentity(null);
             }}
-          />
+          />,
+          document.body,
         )}
         {needRefresh && (
           <div className="update-prompt" role="status" aria-live="polite">
