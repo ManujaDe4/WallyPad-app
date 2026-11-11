@@ -1654,7 +1654,7 @@ export default function App() {
 
           <button
             type="button"
-            className="dock-fab"
+            className="dock-fab center-add-btn"
             aria-label="Add Expense"
             onClick={() => setActiveTab('expenses')}
           >
@@ -1674,18 +1674,6 @@ export default function App() {
               </svg>
             </span>
             <span>List</span>
-          </button>
-
-          <button
-            type="button"
-            className="dock-item"
-            aria-current={activeTab === 'repayments' ? 'page' : undefined}
-            onClick={() => setActiveTab('repayments')}
-          >
-            <span className="dock-icon" aria-hidden="true">
-              ⇄
-            </span>
-            <span>Settle</span>
           </button>
 
           <button

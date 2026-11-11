@@ -1722,8 +1722,9 @@ select:focus-visible {
     padding-bottom: calc(0.4rem + env(safe-area-inset-bottom));
     box-shadow: var(--shadow-dock);
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     align-items: center;
+    justify-items: center;
     gap: 0.25rem;
 }
 
@@ -1733,11 +1734,13 @@ select:focus-visible {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.15rem;
+    justify-content: center;
+    gap: 0.2rem;
+    width: 100%;
     padding: 0.4rem 0.2rem;
     color: var(--muted);
-    font-size: 0.7rem;
-    font-weight: 600;
+    font-size: 0.75rem;
+    font-weight: 500;
     border-radius: 14px;
     cursor: pointer;
     font-family: inherit;
@@ -1766,19 +1769,19 @@ select:focus-visible {
 }
 
 .dock-fab {
-    width: 48px;
-    height: 48px;
+    width: 56px;
+    height: 56px;
     border-radius: 50%;
-    background: linear-gradient(135deg, var(--cyan-light), var(--cyan-dark));
+    background: var(--accent-cyan);
     color: #ffffff;
-    border: 4px solid #ffffff;
+    border: none;
     box-shadow: 0 4px 14px -3px rgba(2, 132, 199, 0.4);
     display: inline-flex;
     align-items: center;
     justify-content: center;
     font-size: 1.35rem;
     font-weight: 700;
-    margin-top: -16px;
+    transform: translateY(-20%);
     padding: 0;
     cursor: pointer;
 }
