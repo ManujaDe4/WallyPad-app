@@ -1,13 +1,13 @@
-# RoomSplit
+# WallyPad
 
 An offline-capable shared-expense tracker for student housemates in Sri Lanka.
-RoomSplit keeps the household ledger on the device, helps make shared costs
+WallyPad keeps the household ledger on the device, helps make shared costs
 clear, and works without cloud accounts.
 
 ## Project Overview & Problem Statement
 
 Housemates often need a simple way to track shared bills, agree how each bill
-should be split, and see who needs to pay whom. RoomSplit is a mobile-first
+should be split, and see who needs to pay whom. WallyPad is a mobile-first
 Progressive Web App (PWA) designed for student households using Sri Lankan
 rupees (LKR). Housemates can track bills, split costs equally or by custom
 exact amounts, and settle debts without creating cloud accounts. Household
@@ -21,11 +21,11 @@ after it has been loaded.
 
 Add current product screenshots at the paths below:
 
-![RoomSplit desktop overview screenshot](docs/screenshots/desktop.png)
+![WallyPad desktop overview screenshot](docs/screenshots/desktop.png)
 
-![RoomSplit mobile overview screenshot](docs/screenshots/mobile.png)
+![WallyPad mobile overview screenshot](docs/screenshots/mobile.png)
 
-![RoomSplit three-member demo fixture showing household balances and suggested repayments](docs/screenshots/demo-fixture.png)
+![WallyPad three-member demo fixture showing household balances and suggested repayments](docs/screenshots/demo-fixture.png)
 
 The demo fixture uses three housemates—Manuja, Nimal, and Kavindu—with shared
 expenses totaling LKR 5,100.00.
@@ -97,9 +97,11 @@ separate balance updates becoming stale.
 ### Snapshot Persistence & Service Worker
 
 Household ledgers and Space metadata are stored in the `spaces` and `settings`
-object stores of the `roomsplit-db` IndexedDB database. The `appState` store is
-kept as a compatibility snapshot for the active Space. The Service Worker is a
-separate layer: Workbox precaches the built app shell and static assets,
+object stores of the `wallypad-db` IndexedDB database. On first launch after
+the rebrand, existing data is copied from `roomsplit-db` without overwriting
+newer WallyPad data. The `appState` store is kept as a compatibility snapshot
+for the active Space. The Service Worker is a separate layer: Workbox precaches
+the built app shell and static assets,
 including HTML, CSS, JavaScript, and icons, so an already-loaded app can reload
 offline. The Service Worker cache does not replace or contain the household
 ledger.
@@ -109,16 +111,16 @@ ledger.
 Set `VITE_SUPABASE_URL` and either `VITE_SUPABASE_PUBLISHABLE_KEY` (recommended
 for new projects) or `VITE_SUPABASE_ANON_KEY` in the local environment and in
 the Cloudflare Pages build environment to enable cloud rooms. The
-Supabase project must provide the `roomsplit_rooms` table, the
+Supabase project must provide the `wallypad_rooms` table, the
 `fetch_room_with_pin` and `upsert_room_with_pin` RPCs, and Realtime publication
-for that table. RPC arguments should be named `p_room_code` and `p_pin_hash`
-for fetch, and `p_room_code`, `p_pin_hash`, and `p_payload` for upsert. The
-client also tries common legacy parameter names when PostgREST returns
-`PGRST202`. After changing an RPC signature in Supabase, refresh the schema
-cache with `NOTIFY pgrst, 'reload schema';` in the SQL editor. Cloudflare Pages
-variables are embedded at build time, so add
+for that table. The fetch RPC accepts `p_room_code` and `p_pin_hash`; the
+upsert RPC accepts `p_room_code`, `p_pin_hash`, `p_household`, and
+`p_deleted_ids`. The client also tries common legacy parameter names when
+PostgREST returns `PGRST202`. After changing an RPC signature in Supabase,
+refresh the schema cache with `NOTIFY pgrst, 'reload schema';` in the SQL
+editor. Cloudflare Pages variables are embedded at build time, so add
 them under the Pages build environment settings and trigger a new deployment
-after changing them. Without these settings, RoomSplit stays in local-only
+after changing them. Without these settings, WallyPad stays in local-only
 mode.
 
 Each Space remains stored in IndexedDB and can be edited offline. When room

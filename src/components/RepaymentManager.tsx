@@ -166,7 +166,7 @@ export default function RepaymentManager({
         {shareOpen && (
           <div className="share-snapshot">
             <div className="share-card-preview">
-              <svg viewBox="0 0 96 96" role="img" aria-label="RoomSplit settlement share badge">
+              <svg viewBox="0 0 96 96" role="img" aria-label="WallyPad settlement share badge">
                 <rect width="96" height="96" rx="18" fill="#e8f7f7" />
                 <path d="M25 31h22a10 10 0 0 1 0 20H39m10 14H27a10 10 0 0 1 0-20h8m10-7 7 7-7 7m-1 6-7 7 7 7" fill="none" stroke="#007d7b" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
                 <circle cx="70" cy="27" r="7" fill="#0099cc" />

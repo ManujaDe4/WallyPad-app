@@ -311,7 +311,7 @@ export async function pushOrMergeRoom(household: Household): Promise<Household> 
     );
     return syncedHousehold;
   } catch (error) {
-    console.error('RoomSplit cloud sync failed; changes remain pending.', error);
+    console.error('WallyPad cloud sync failed; changes remain pending.', error);
     return { ...household, pendingSync: true };
   }
 }
@@ -321,13 +321,13 @@ export function subscribeToRoom(
   onRemoteUpdate: (remotePayload: unknown) => void,
 ): () => void {
   const channel = getClient()
-    .channel(`roomsplit-room-${roomCode}`)
+    .channel(`wallypad-room-${roomCode}`)
     .on(
       'postgres_changes',
       {
         event: '*',
         schema: 'public',
-        table: 'roomsplit_rooms',
+        table: 'wallypad_rooms',
         filter: `room_code=eq.${roomCode}`,
       },
       (payload) => onRemoteUpdate(payload),

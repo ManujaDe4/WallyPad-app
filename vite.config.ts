@@ -9,8 +9,8 @@ export default defineConfig({
     VitePWA({
       registerType: 'prompt',
       manifest: {
-        name: 'RoomSplit',
-        short_name: 'RoomSplit',
+        name: 'WallyPad',
+        short_name: 'WallyPad',
         start_url: '/',
         display: 'standalone',
         theme_color: '#007D7B',

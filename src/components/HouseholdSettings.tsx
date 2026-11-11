@@ -286,13 +286,13 @@ export default function HouseholdSettings({
   };
 
   const handleCopyInvite = async () => {
-    const inviteUrl = new URL('https://roomsplit-app.pages.dev/');
+    const inviteUrl = new URL(window.location.origin);
     inviteUrl.searchParams.set('join', household.syncRoomCode ?? '');
     const hasInvitePin = /^\d{4}$/.test(roomPin.trim());
     if (hasInvitePin) inviteUrl.searchParams.set('pin', roomPin.trim());
     const message = hasInvitePin
-      ? `Join ${household.name} on RoomSplit: ${inviteUrl.toString()}`
-      : `Join ${household.name} on RoomSplit: ${inviteUrl.toString()}\nAsk me for the 4-digit room PIN.`;
+      ? `Join ${household.name} on WallyPad: ${inviteUrl.toString()}`
+      : `Join ${household.name} on WallyPad: ${inviteUrl.toString()}\nAsk me for the 4-digit room PIN.`;
     try {
       await navigator.clipboard.writeText(message);
       setCloudError('');
@@ -325,7 +325,9 @@ export default function HouseholdSettings({
       }
       if (
         typeof envelope === 'object' && envelope !== null &&
-        'format' in envelope && envelope.format === 'RoomSplitEncryptedBackup'
+        'format' in envelope &&
+        (envelope.format === 'WallyPadEncryptedBackup' ||
+          envelope.format === 'RoomSplitEncryptedBackup')
       ) {
         rawText = await decryptBackupJson(rawText, backupPassword);
       }
@@ -398,7 +400,7 @@ export default function HouseholdSettings({
   const exportEncryptedBackup = async () => {
     try {
       const content = await encryptBackupJson(JSON.stringify({
-        app: 'RoomSplit',
+        app: 'WallyPad',
         schemaVersion: 1,
         exportedAt: new Date().toISOString(),
         household,
@@ -406,7 +408,7 @@ export default function HouseholdSettings({
       const link = document.createElement('a');
       const url = URL.createObjectURL(new Blob([content], { type: 'application/json' }));
       link.href = url;
-      link.download = `roomsplit-encrypted-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      link.download = `wallypad-encrypted-backup-${new Date().toISOString().slice(0, 10)}.json`;
       document.body.append(link);
       link.click();
       link.remove();
@@ -421,7 +423,7 @@ export default function HouseholdSettings({
       <section className="card theme-settings-card">
         <div>
           <h2>App Theme</h2>
-          <p className="tx-sub">Choose a comfortable appearance for RoomSplit.</p>
+          <p className="tx-sub">Choose a comfortable appearance for WallyPad.</p>
         </div>
         <div className="theme-toggle" role="group" aria-label="App theme">
           <button

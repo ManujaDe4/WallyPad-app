@@ -1,8 +1,8 @@
 import { openDB } from 'idb';
-import type { DBSchema } from 'idb';
+import type { DBSchema, IDBPDatabase } from 'idb';
 import type { Household, LocalIdentity, Space, SpaceAccent } from '../types';
 
-interface RoomSplitDatabase extends DBSchema {
+interface WallyPadDatabase extends DBSchema {
   appState: {
     key: string;
     value: Household;
@@ -17,7 +17,10 @@ interface RoomSplitDatabase extends DBSchema {
   };
 }
 
-const database = openDB<RoomSplitDatabase>('roomsplit-db', 2, {
+const LEGACY_DATABASE_NAME = 'roomsplit-db';
+const LEGACY_MIGRATION_KEY = '__legacyDatabaseMigrated';
+
+const database = openDB<WallyPadDatabase>('wallypad-db', 2, {
   upgrade(db) {
     if (!db.objectStoreNames.contains('appState')) {
       db.createObjectStore('appState');
@@ -27,8 +30,73 @@ const database = openDB<RoomSplitDatabase>('roomsplit-db', 2, {
   },
 });
 
+const databaseWithLegacyMigration = database.then(async (db) => {
+  await migrateLegacyDatabase(db);
+  return db;
+});
+
+async function hasLegacyDatabase(): Promise<boolean> {
+  if (typeof indexedDB.databases === 'function') {
+    const databases = await indexedDB.databases();
+    return databases.some((entry) => entry.name === LEGACY_DATABASE_NAME);
+  }
+  return new Promise((resolve, reject) => {
+    let missing = false;
+    const request = indexedDB.open(LEGACY_DATABASE_NAME);
+    request.onupgradeneeded = (event) => {
+      if (event.oldVersion === 0) {
+        missing = true;
+        request.transaction?.abort();
+      }
+    };
+    request.onsuccess = () => {
+      request.result.close();
+      resolve(true);
+    };
+    request.onerror = () => {
+      if (missing && request.error?.name === 'AbortError') {
+        resolve(false);
+        return;
+      }
+      reject(request.error ?? new Error('Could not inspect legacy local storage.'));
+    };
+  });
+}
+
+async function migrateLegacyDatabase(
+  targetDb: IDBPDatabase<WallyPadDatabase>,
+): Promise<void> {
+  if (await targetDb.get('settings', LEGACY_MIGRATION_KEY) === 'true') return;
+  if (!await hasLegacyDatabase()) {
+    await targetDb.put('settings', 'true', LEGACY_MIGRATION_KEY);
+    return;
+  }
+
+  const legacyDb = await openDB<WallyPadDatabase>(LEGACY_DATABASE_NAME);
+  try {
+    for (const storeName of ['appState', 'spaces', 'settings'] as const) {
+      const sourceTransaction = legacyDb.transaction(storeName, 'readonly');
+      const keys = await sourceTransaction.store.getAllKeys();
+      const values = await sourceTransaction.store.getAll();
+      await sourceTransaction.done;
+
+      const targetTransaction = targetDb.transaction(storeName, 'readwrite');
+      for (let index = 0; index < keys.length; index += 1) {
+        const key = keys[index];
+        if (await targetTransaction.store.get(key) === undefined) {
+          await targetTransaction.store.put(values[index], key);
+        }
+      }
+      await targetTransaction.done;
+    }
+    await targetDb.put('settings', 'true', LEGACY_MIGRATION_KEY);
+  } finally {
+    legacyDb.close();
+  }
+}
+
 export async function loadHousehold(): Promise<Household | null> {
-  const db = await database;
+  const db = await databaseWithLegacyMigration;
   const activeId = await db.get('settings', 'activeSpaceId');
   if (activeId) {
     const activeSpace = await db.get('spaces', activeId);
@@ -38,7 +106,7 @@ export async function loadHousehold(): Promise<Household | null> {
 }
 
 export async function saveHousehold(household: Household): Promise<void> {
-  const db = await database;
+  const db = await databaseWithLegacyMigration;
   const transaction = db.transaction(['appState', 'spaces', 'settings'], 'readwrite');
   await transaction.objectStore('appState').put(household, 'current');
   const activeId = await transaction.objectStore('settings').get('activeSpaceId');
@@ -55,7 +123,7 @@ export async function saveHousehold(household: Household): Promise<void> {
 }
 
 export async function loadSpacesIndex(): Promise<Space[]> {
-  const db = await database;
+  const db = await databaseWithLegacyMigration;
   const spaces = await db.getAll('spaces');
   if (spaces.length) {
     const activeId = await db.get('settings', 'activeSpaceId');
@@ -83,12 +151,12 @@ export async function loadSpacesIndex(): Promise<Space[]> {
 }
 
 export async function loadActiveSpaceId(): Promise<string | null> {
-  const db = await database;
+  const db = await databaseWithLegacyMigration;
   return (await db.get('settings', 'activeSpaceId')) ?? null;
 }
 
 export async function loadLocalIdentity(): Promise<LocalIdentity | null> {
-  const db = await database;
+  const db = await databaseWithLegacyMigration;
   const stored = await db.get('settings', 'localIdentity');
   if (!stored) return null;
   let value: unknown;
@@ -108,14 +176,14 @@ export async function loadLocalIdentity(): Promise<LocalIdentity | null> {
 }
 
 export async function saveLocalIdentity(identity: LocalIdentity): Promise<void> {
-  const db = await database;
+  const db = await databaseWithLegacyMigration;
   await db.put('settings', JSON.stringify(identity), 'localIdentity');
 }
 
 export async function saveSpace(
   space: Pick<Space, 'id' | 'name' | 'accent'> & { household?: Household },
 ): Promise<Space> {
-  const db = await database;
+  const db = await databaseWithLegacyMigration;
   const previous = await db.get('spaces', space.id);
   const household = space.household ?? previous?.household ?? {
     id: space.id,
@@ -142,7 +210,7 @@ export async function saveSpace(
 }
 
 export async function deleteSpace(spaceId: string): Promise<void> {
-  const db = await database;
+  const db = await databaseWithLegacyMigration;
   const transaction = db.transaction(['spaces', 'settings', 'appState'], 'readwrite');
   await transaction.objectStore('spaces').delete(spaceId);
   const activeId = await transaction.objectStore('settings').get('activeSpaceId');
@@ -161,7 +229,7 @@ export async function deleteSpace(spaceId: string): Promise<void> {
 }
 
 export async function setActiveSpaceId(spaceId: string): Promise<void> {
-  const db = await database;
+  const db = await databaseWithLegacyMigration;
   const space = await db.get('spaces', spaceId);
   if (!space) throw new Error('The selected Space could not be found.');
   const transaction = db.transaction(['settings', 'appState'], 'readwrite');
@@ -171,7 +239,7 @@ export async function setActiveSpaceId(spaceId: string): Promise<void> {
 }
 
 export async function updateSpaceAccent(spaceId: string, accent: SpaceAccent): Promise<void> {
-  const db = await database;
+  const db = await databaseWithLegacyMigration;
   const space = await db.get('spaces', spaceId);
   if (!space) throw new Error('The selected Space could not be found.');
   await db.put('spaces', {

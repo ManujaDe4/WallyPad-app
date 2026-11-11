@@ -1,5 +1,5 @@
 type EncryptedBackup = {
-  format: 'RoomSplitEncryptedBackup';
+  format: 'WallyPadEncryptedBackup' | 'RoomSplitEncryptedBackup';
   version: 1;
   salt: string;
   iv: string;
@@ -44,7 +44,7 @@ export async function encryptBackupJson(plaintext: string, password: string): Pr
     new TextEncoder().encode(plaintext),
   );
   const backup: EncryptedBackup = {
-    format: 'RoomSplitEncryptedBackup',
+    format: 'WallyPadEncryptedBackup',
     version: 1,
     salt: toBase64(salt),
     iv: toBase64(iv),
@@ -65,12 +65,13 @@ export async function decryptBackupJson(encryptedText: string, password: string)
   }
   const record = parsed as Record<string, unknown>;
   if (
-    record.format !== 'RoomSplitEncryptedBackup' || record.version !== 1 ||
+    (record.format !== 'WallyPadEncryptedBackup' &&
+      record.format !== 'RoomSplitEncryptedBackup') || record.version !== 1 ||
     typeof record.salt !== 'string' || typeof record.iv !== 'string' ||
     typeof record.ciphertext !== 'string' || !password
   ) throw new Error('Encrypted backup format or password is invalid.');
   const backup: EncryptedBackup = {
-    format: 'RoomSplitEncryptedBackup',
+    format: record.format,
     version: 1,
     salt: record.salt,
     iv: record.iv,

@@ -43,8 +43,8 @@ export function validateBackupJson(rawText: string): BackupValidationResult {
   if (!isRecord(parsed)) {
     return validationError('Backup must be a JSON object.');
   }
-  if (parsed.app !== 'RoomSplit') {
-    return validationError('Backup app must be "RoomSplit".');
+  if (parsed.app !== 'WallyPad' && parsed.app !== 'RoomSplit') {
+    return validationError('Backup app must be "WallyPad".');
   }
   if (parsed.schemaVersion !== 1) {
     return validationError('Unsupported backup schema version.');
@@ -372,7 +372,7 @@ export function validateBackupJson(rawText: string): BackupValidationResult {
 
 export function exportBackupFile(household: Household): void {
   const backup = {
-    app: 'RoomSplit',
+    app: 'WallyPad',
     schemaVersion: 1,
     exportedAt: new Date().toISOString(),
     household,
@@ -384,7 +384,7 @@ export function exportBackupFile(household: Household): void {
   const link = document.createElement('a');
   const today = new Date().toISOString().slice(0, 10);
   link.href = url;
-  link.download = `roomsplit-backup-${today}.json`;
+  link.download = `wallypad-backup-${today}.json`;
   document.body.append(link);
   link.click();
   link.remove();

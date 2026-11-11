@@ -102,7 +102,7 @@ const DEMO_HOUSEHOLD: Household = {
 function createEmptyHousehold(): Household {
   return {
     id: crypto.randomUUID(),
-    name: 'My Household',
+    name: 'My WallyPad',
     currency: 'LKR',
     members: [],
     expenses: [],
@@ -188,8 +188,13 @@ export default function App() {
     updateServiceWorker,
   } = useRegisterSW();
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    const storedTheme = localStorage.getItem('roomsplit_theme');
-    return storedTheme === 'dark' ? 'dark' : 'light';
+    const storedTheme = localStorage.getItem('wallypad_theme');
+    const legacyTheme = localStorage.getItem('roomsplit_theme');
+    if (!storedTheme && legacyTheme) {
+      localStorage.setItem('wallypad_theme', legacyTheme);
+      localStorage.removeItem('roomsplit_theme');
+    }
+    return (storedTheme ?? legacyTheme) === 'dark' ? 'dark' : 'light';
   });
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [household, setHousehold] = useState<Household | null>(null);
@@ -230,7 +235,8 @@ export default function App() {
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('roomsplit_theme', theme);
+    localStorage.setItem('wallypad_theme', theme);
+    localStorage.removeItem('roomsplit_theme');
   }, [theme]);
 
   useEffect(() => {
@@ -1176,7 +1182,7 @@ export default function App() {
         {needRefresh && (
           <div className="update-prompt" role="status" aria-live="polite">
             <p>
-              A new version of RoomSplit is available — Save or cancel any open
+              A new version of WallyPad is available — Save or cancel any open
               form before updating
             </p>
             <div className="update-prompt-actions">

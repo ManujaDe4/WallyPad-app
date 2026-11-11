@@ -60,7 +60,7 @@ export type Space = {
 };
 
 export type Backup = {
-  app: 'RoomSplit';
+  app: 'WallyPad';
   schemaVersion: 1;
   exportedAt: string;
   household: Household;

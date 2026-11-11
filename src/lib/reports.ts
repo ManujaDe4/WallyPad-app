@@ -115,7 +115,7 @@ export function exportPdfReport(household: Household): void {
     ).join('; '), formatMoney(expense.amountCents),
   ]);
   const styles = `body{font:14px Arial,sans-serif;color:#10243b;margin:32px}h1{color:#007d7b}h2{margin-top:28px;color:#10243b}p{color:#526174}table{width:100%;border-collapse:collapse;margin:12px 0 24px;font-size:12px}th,td{border:1px solid #dce4ec;padding:8px;text-align:left}th{background:#edf5f5}tr{break-inside:avoid}.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.summary div{border:1px solid #dce4ec;border-radius:12px;padding:12px}@media print{body{margin:12mm}button{display:none}}`;
-  reportWindow.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(household.name)} Expense Report</title><style>${styles}</style></head><body><h1>RoomSplit Expense Report</h1><p>${escapeHtml(household.name)} · Generated ${new Date().toLocaleDateString()}</p><h2>Executive Summary</h2><div class="summary"><div><b>Total spending</b><br>${formatMoney(spending)}</div><div><b>Total repaid</b><br>${formatMoney(repaid)}</div><div><b>Net unsettled balance</b><br>${formatMoney(transfers.reduce((sum, transfer) => sum + transfer.amountCents, 0))}</div></div><h2>Monthly Expense Summary</h2>${table(['Month', 'Bills', 'Groceries', 'Rent', 'Utilities', 'Other', 'Total Spend', 'Average per Member'], monthlyRows)}<h2>Weekly Expense Summary</h2>${table(['Week Date Range', 'Bills', 'Top Category', 'Total Weekly Spend'], weeklyRows)}<h2>Housemate Net Balances</h2>${table(['Member', 'Total Paid', 'Share Owed', 'Net Balance', 'Status'], balanceRows)}<h2>Suggested Settlements</h2>${table(['Transfer', 'Amount'], transferRows)}<h2>Itemized Expense Log</h2>${table(['Date', 'Title', 'Category', 'Payer', 'Split Mode', 'Participant Shares', 'Amount'], expenseRows)}<script>window.addEventListener('load',()=>window.print())</script></body></html>`);
+  reportWindow.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(household.name)} Expense Report</title><style>${styles}</style></head><body><h1>WallyPad Expense Report</h1><p>${escapeHtml(household.name)} · Generated ${new Date().toLocaleDateString()}</p><h2>Executive Summary</h2><div class="summary"><div><b>Total spending</b><br>${formatMoney(spending)}</div><div><b>Total repaid</b><br>${formatMoney(repaid)}</div><div><b>Net unsettled balance</b><br>${formatMoney(transfers.reduce((sum, transfer) => sum + transfer.amountCents, 0))}</div></div><h2>Monthly Expense Summary</h2>${table(['Month', 'Bills', 'Groceries', 'Rent', 'Utilities', 'Other', 'Total Spend', 'Average per Member'], monthlyRows)}<h2>Weekly Expense Summary</h2>${table(['Week Date Range', 'Bills', 'Top Category', 'Total Weekly Spend'], weeklyRows)}<h2>Housemate Net Balances</h2>${table(['Member', 'Total Paid', 'Share Owed', 'Net Balance', 'Status'], balanceRows)}<h2>Suggested Settlements</h2>${table(['Transfer', 'Amount'], transferRows)}<h2>Itemized Expense Log</h2>${table(['Date', 'Title', 'Category', 'Payer', 'Split Mode', 'Participant Shares', 'Amount'], expenseRows)}<script>window.addEventListener('load',()=>window.print())</script></body></html>`);
   reportWindow.document.close();
 }
 
@@ -139,7 +139,7 @@ export function exportCsvReport(household: Household): void {
     ]),
   ];
   downloadFile(
-    'roomsplit-ledger.csv',
+    'wallypad-ledger.csv',
     `\uFEFF${rows.map((row) => row.map(csvCell).join(',')).join('\r\n')}`,
     'text/csv;charset=utf-8',
   );

@@ -65,7 +65,7 @@ function createDemoHousehold(): Household {
 
 function createBackup(household = createDemoHousehold()): Backup {
   return {
-    app: 'RoomSplit',
+    app: 'WallyPad',
     schemaVersion: 1,
     exportedAt: '2026-11-08T12:00:00.000Z',
     household,
@@ -372,6 +372,13 @@ describe('balances and repayments', () => {
 });
 
 describe('backup validation', () => {
+  test('continues accepting legacy RoomSplit backups', () => {
+    const backup = createBackup();
+    const legacyBackup = { ...backup, app: 'RoomSplit' };
+
+    expect(validateBackupJson(JSON.stringify(legacyBackup)).ok).toBe(true);
+  });
+
   test('generates room codes from the first four letters and a four-digit suffix', () => {
     const random = vi.spyOn(Math, 'random').mockReturnValue(0.5);
     try {
@@ -488,11 +495,26 @@ describe('backup validation', () => {
     test('encrypts and decrypts backup text using a password', async () => {
       const plaintext = JSON.stringify(createBackup());
       const encrypted = await encryptBackupJson(plaintext, 'household-secret');
+      expect(JSON.parse(encrypted)).toMatchObject({
+        format: 'WallyPadEncryptedBackup',
+      });
       expect(encrypted).not.toContain('Colombo Student Flat');
       await expect(decryptBackupJson(encrypted, 'household-secret')).resolves.toBe(plaintext);
       await expect(decryptBackupJson(encrypted, 'wrong-password')).rejects.toThrow(
         'Could not decrypt backup. Check the password and file.',
       );
+    });
+
+    test('decrypts legacy RoomSplit encrypted backups', async () => {
+      const plaintext = JSON.stringify(createBackup());
+      const encrypted = JSON.parse(
+        await encryptBackupJson(plaintext, 'household-secret'),
+      ) as Record<string, unknown>;
+      encrypted.format = 'RoomSplitEncryptedBackup';
+
+      await expect(
+        decryptBackupJson(JSON.stringify(encrypted), 'household-secret'),
+      ).resolves.toBe(plaintext);
     });
   });
 

@@ -1,4 +1,4 @@
-# RoomSplit Test Notes
+# WallyPad Test Notes
 
 **Test date:** 2026-11-08  
 **Environment:** Windows; Node.js 24.14.0; npm 11.15.0; Vite 8.3.6;
@@ -25,7 +25,7 @@ Release checks:
 These are manual release checks and remain unchecked until performed on the
 target browser/device:
 
-- [ ] Confirm the installed PWA manifest shows RoomSplit with both PNG icons.
+- [ ] Confirm the installed PWA manifest shows WallyPad with both PNG icons.
 - [ ] Install the app and confirm it launches in standalone display mode.
 - [ ] Load the app once, go offline, and confirm the cached app shell opens.
 - [ ] Confirm household data remains available after an offline reload.
