@@ -21,6 +21,15 @@ export type Repayment = {
   date: string;
 };
 
+export type NeedItem = {
+  id: string;
+  name: string;
+  isChecked: boolean;
+  lastPriceCents: number;
+  updatedAt?: string;
+  lastPurchasedAt?: string;
+};
+
 export type Household = {
   id: string;
   name: string;
@@ -28,6 +37,7 @@ export type Household = {
   members: Member[];
   expenses: Expense[];
   repayments: Repayment[];
+  needsLedger?: NeedItem[];
   updatedAt: string;
   adminId?: string;
   monthlyBudgetCents?: number;

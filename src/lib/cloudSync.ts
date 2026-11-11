@@ -89,6 +89,26 @@ function mergeById<T extends { id: string }>(
   return [...items.values()].filter((item) => !deleted.has(item.id));
 }
 
+function mergeNeedsById(
+  localItems: NonNullable<Household['needsLedger']>,
+  remoteItems: NonNullable<Household['needsLedger']>,
+  deleted: Set<string>,
+): NonNullable<Household['needsLedger']> {
+  const items = new Map<string, NonNullable<Household['needsLedger']>[number]>();
+  for (const item of remoteItems) items.set(item.id, item);
+  for (const item of localItems) {
+    const remoteItem = items.get(item.id);
+    if (
+      !remoteItem ||
+      !remoteItem.updatedAt ||
+      (item.updatedAt && item.updatedAt >= remoteItem.updatedAt)
+    ) {
+      items.set(item.id, item);
+    }
+  }
+  return [...items.values()].filter((item) => !deleted.has(item.id));
+}
+
 export function mergeHouseholds(
   local: Household,
   remote: Household,
@@ -107,6 +127,11 @@ export function mergeHouseholds(
     members: mergeById(local.members, remote.members, deleted),
     expenses: mergeById(local.expenses, remote.expenses, deleted),
     repayments: mergeById(local.repayments, remote.repayments, deleted),
+    needsLedger: mergeNeedsById(
+      local.needsLedger ?? [],
+      remote.needsLedger ?? [],
+      deleted,
+    ),
     deletedIds,
     updatedAt: local.updatedAt >= remote.updatedAt ? local.updatedAt : remote.updatedAt,
     syncRoomCode: local.syncRoomCode ?? remote.syncRoomCode,
@@ -146,10 +171,24 @@ function assertHousehold(value: unknown): Household {
     'toId' in repayment && typeof repayment.toId === 'string' &&
     'amountCents' in repayment && typeof repayment.amountCents === 'number',
   );
+  const needsLedgerValid = !('needsLedger' in value) ||
+    (Array.isArray(value.needsLedger) && value.needsLedger.every((item) =>
+      typeof item === 'object' && item !== null &&
+      'id' in item && typeof item.id === 'string' &&
+      'name' in item && typeof item.name === 'string' &&
+      'isChecked' in item && typeof item.isChecked === 'boolean' &&
+      'lastPriceCents' in item && typeof item.lastPriceCents === 'number' &&
+      Number.isSafeInteger(item.lastPriceCents) && item.lastPriceCents >= 0 &&
+      (!('updatedAt' in item) || typeof item.updatedAt === 'string') &&
+      (!('lastPurchasedAt' in item) || typeof item.lastPurchasedAt === 'string')
+    ));
   const tombstonesValid = !('deletedIds' in value) ||
     (Array.isArray(value.deletedIds) &&
       value.deletedIds.every((id) => typeof id === 'string'));
-  if (!memberRecordsValid || !expenseRecordsValid || !repaymentRecordsValid || !tombstonesValid) {
+  if (
+    !memberRecordsValid || !expenseRecordsValid || !repaymentRecordsValid ||
+    !needsLedgerValid || !tombstonesValid
+  ) {
     throw new Error('The room returned invalid household data.');
   }
   return value as Household;

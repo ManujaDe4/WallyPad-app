@@ -138,6 +138,52 @@ describe('cloud household merging', () => {
     expect(merged.deletedIds).toContain('deleted-member');
     expect(merged.deletedIds).toContain('deleted-repayment');
   });
+
+  test('merges needs by ID and keeps the most recently updated item', () => {
+    const local = createDemoHousehold();
+    const remote = createDemoHousehold();
+    local.needsLedger = [
+      {
+        id: 'rice',
+        name: 'Rice',
+        isChecked: true,
+        lastPriceCents: 32000,
+        updatedAt: '2026-11-09T10:00:00.000Z',
+        lastPurchasedAt: '2026-11-09',
+      },
+      {
+        id: 'soap',
+        name: 'Soap',
+        isChecked: false,
+        lastPriceCents: 0,
+        updatedAt: '2026-11-09T10:00:00.000Z',
+      },
+    ];
+    remote.needsLedger = [
+      {
+        id: 'rice',
+        name: 'Rice',
+        isChecked: false,
+        lastPriceCents: 30000,
+        updatedAt: '2026-11-08T10:00:00.000Z',
+      },
+      {
+        id: 'dish-soap',
+        name: 'Dish soap',
+        isChecked: false,
+        lastPriceCents: 0,
+        updatedAt: '2026-11-08T10:00:00.000Z',
+      },
+    ];
+
+    const merged = mergeHouseholds(local, remote, []);
+
+    expect(merged.needsLedger).toEqual([
+      local.needsLedger[0],
+      remote.needsLedger[1],
+      local.needsLedger[1],
+    ]);
+  });
 });
 
 describe('money and splits', () => {
@@ -353,6 +399,30 @@ describe('backup validation', () => {
     expect(validateBackupJson(JSON.stringify(backup))).toMatchObject({
       ok: false,
       error: 'Household monthly budget is invalid.',
+    });
+  });
+
+  test('preserves recurring needs and rejects invalid ledger prices', () => {
+    const backup = createBackup();
+    backup.household.needsLedger = [{
+      id: 'rice',
+      name: 'Rice',
+      isChecked: true,
+      lastPriceCents: 32000,
+      updatedAt: '2026-11-09T10:00:00.000Z',
+      lastPurchasedAt: '2026-11-09',
+    }];
+    const validResult = validateBackupJson(JSON.stringify(backup));
+
+    expect(validResult.ok).toBe(true);
+    if (validResult.ok) {
+      expect(validResult.household.needsLedger).toEqual(backup.household.needsLedger);
+    }
+
+    backup.household.needsLedger[0].lastPriceCents = -1;
+    expect(validateBackupJson(JSON.stringify(backup))).toMatchObject({
+      ok: false,
+      error: 'A needs ledger item is invalid.',
     });
   });
 

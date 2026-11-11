@@ -1,4 +1,4 @@
-import type { Expense, Household, Member, Repayment, Share, SpaceAccent } from '../types';
+import type { Expense, Household, Member, NeedItem, Repayment, Share, SpaceAccent } from '../types';
 
 const MAX_BACKUP_BYTES = 2 * 1024 * 1024;
 const MAX_AMOUNT_CENTS = 100_000_000;
@@ -86,6 +86,45 @@ export function validateBackupJson(rawText: string): BackupValidationResult {
     !Array.isArray(rawHousehold.repayments)
   ) {
     return validationError('Household records must be arrays.');
+  }
+  let needsLedger: NeedItem[] | undefined;
+  if ('needsLedger' in rawHousehold) {
+    if (!Array.isArray(rawHousehold.needsLedger) || rawHousehold.needsLedger.length > 5000) {
+      return validationError('Household needs ledger is invalid.');
+    }
+    const needIds = new Set<string>();
+    needsLedger = [];
+    for (const item of rawHousehold.needsLedger) {
+      if (
+        !isRecord(item) ||
+        typeof item.id !== 'string' || !item.id.trim() ||
+        typeof item.name !== 'string' || !item.name.trim() || item.name.trim().length > 80 ||
+        typeof item.isChecked !== 'boolean' ||
+        typeof item.lastPriceCents !== 'number' ||
+        !Number.isSafeInteger(item.lastPriceCents) ||
+        item.lastPriceCents < 0 ||
+        item.lastPriceCents > MAX_AMOUNT_CENTS ||
+        ('updatedAt' in item &&
+          (typeof item.updatedAt !== 'string' || Number.isNaN(Date.parse(item.updatedAt)))) ||
+        ('lastPurchasedAt' in item && !isValidDate(item.lastPurchasedAt))
+      ) {
+        return validationError('A needs ledger item is invalid.');
+      }
+      if (needIds.has(item.id)) {
+        return validationError(`Duplicate needs ledger item ID "${item.id}".`);
+      }
+      needIds.add(item.id);
+      needsLedger.push({
+        id: item.id,
+        name: item.name.trim(),
+        isChecked: item.isChecked,
+        lastPriceCents: item.lastPriceCents,
+        ...('updatedAt' in item ? { updatedAt: item.updatedAt as string } : {}),
+        ...('lastPurchasedAt' in item
+          ? { lastPurchasedAt: item.lastPurchasedAt as string }
+          : {}),
+      });
+    }
   }
   let deletedIds: string[] | undefined;
   if ('deletedIds' in rawHousehold) {
@@ -320,6 +359,7 @@ export function validateBackupJson(rawText: string): BackupValidationResult {
       members,
       expenses,
       repayments,
+      ...(needsLedger ? { needsLedger } : {}),
       updatedAt: rawHousehold.updatedAt,
       ...(adminId ? { adminId } : {}),
       ...(monthlyBudgetCents !== undefined ? { monthlyBudgetCents } : {}),

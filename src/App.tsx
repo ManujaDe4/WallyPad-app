@@ -7,6 +7,7 @@ import HouseholdSettings from './components/HouseholdSettings';
 import ExpenseManager from './components/ExpenseManager';
 import OnboardingModal from './components/OnboardingModal';
 import RepaymentManager from './components/RepaymentManager';
+import NeedsLedger from './components/NeedsLedger';
 import { formatMoney } from './lib/money';
 import {
   loadActiveSpaceId,
@@ -39,7 +40,7 @@ import {
 } from './lib/cloudSync';
 import { setLocalMemberId } from './lib/identity';
 
-type Tab = 'overview' | 'expenses' | 'repayments' | 'settings';
+type Tab = 'overview' | 'expenses' | 'needs' | 'repayments' | 'settings';
 
 const DEMO_HOUSEHOLD: Household = {
   id: 'demo-house-1',
@@ -157,6 +158,19 @@ function getRemoteHousehold(payload: unknown): Household | null {
     !('members' in value) || !Array.isArray(value.members) ||
     !('expenses' in value) || !Array.isArray(value.expenses) ||
     !('repayments' in value) || !Array.isArray(value.repayments) ||
+    ('needsLedger' in value && (
+      !Array.isArray(value.needsLedger) ||
+      !value.needsLedger.every((item) =>
+        typeof item === 'object' && item !== null &&
+        'id' in item && typeof item.id === 'string' &&
+        'name' in item && typeof item.name === 'string' &&
+        'isChecked' in item && typeof item.isChecked === 'boolean' &&
+        'lastPriceCents' in item && typeof item.lastPriceCents === 'number' &&
+        Number.isSafeInteger(item.lastPriceCents) && item.lastPriceCents >= 0 &&
+        (!('updatedAt' in item) || typeof item.updatedAt === 'string') &&
+        (!('lastPurchasedAt' in item) || typeof item.lastPurchasedAt === 'string')
+      )
+    )) ||
     !('updatedAt' in value) || typeof value.updatedAt !== 'string'
   ) return null;
   return value as Household;
@@ -1577,6 +1591,15 @@ export default function App() {
           />
         )}
 
+        {!snapshot && activeTab === 'needs' && (
+          <NeedsLedger
+            key={activeSpaceId}
+            household={household}
+            onUpdateHousehold={commitHousehold}
+            isSaving={isSaving}
+          />
+        )}
+
         {!snapshot && activeTab === 'repayments' && (
           <RepaymentManager
             key={activeSpaceId}
@@ -1636,6 +1659,21 @@ export default function App() {
             onClick={() => setActiveTab('expenses')}
           >
             +
+          </button>
+
+          <button
+            type="button"
+            className="dock-item"
+            aria-current={activeTab === 'needs' ? 'page' : undefined}
+            onClick={() => setActiveTab('needs')}
+          >
+            <span className="dock-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M7 3.75h10a2 2 0 0 1 2 2v14.5H5V5.75a2 2 0 0 1 2-2Z" />
+                <path d="m8 10 1.5 1.5L12 9m2 1h3m-9 5 1.5 1.5L12 14m2 1h3" />
+              </svg>
+            </span>
+            <span>List</span>
           </button>
 
           <button
