@@ -16,7 +16,7 @@ after it has been loaded.
 
 ## Live Demo & Screenshots
 
-- **Cloudflare Pages demo:** [https://roomsplit-app.pages.dev/]
+- **Cloudflare Pages demo:** [https://wallypad.pages.dev/]
   *(deployment URL placeholder)*
 
 Add current product screenshots at the paths below:
