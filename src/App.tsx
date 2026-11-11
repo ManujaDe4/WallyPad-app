@@ -959,7 +959,7 @@ export default function App() {
         </div>
       </header>
 
-      <main>
+      <main className="main-content">
         {spacesOpen && createPortal(
           <div className="spaces-modal-backdrop" onMouseDown={(event) => {
             if (event.target === event.currentTarget) closeSpaces();
