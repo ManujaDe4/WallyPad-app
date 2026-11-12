@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { useRegisterSW } from 'virtual:pwa-register/react';
+import type { Session } from '@supabase/supabase-js';
 import type { Household, LocalIdentity, Member, Space, SpaceAccent } from './types';
+import AuthScreen from './components/AuthScreen';
 import HouseholdSettings from './components/HouseholdSettings';
 import ExpenseManager from './components/ExpenseManager';
 import OnboardingModal from './components/OnboardingModal';
@@ -33,14 +35,19 @@ import {
 } from './lib/balances';
 import {
   isCloudConfigured,
+  getSupabaseClient,
   joinRoomSync,
   mergeHouseholds,
   pushOrMergeRoom,
   subscribeToRoom,
 } from './lib/cloudSync';
-import { getLocalMemberId, setLocalMemberId } from './lib/identity';
+import { setLocalMemberId } from './lib/identity';
 
 type Tab = 'overview' | 'expenses' | 'needs' | 'repayments' | 'settings';
+type MainAppProps = {
+  session: Session;
+  onSignOut: () => Promise<void>;
+};
 
 const DEMO_HOUSEHOLD: Household = {
   id: 'demo-house-1',
@@ -183,6 +190,76 @@ const CATEGORY_COLORS: Record<string, string> = {
   Other: '#7C3AED',
 };
 export default function App() {
+  const [session, setSession] = useState<Session | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    let authEventReceived = false;
+    let unsubscribe: (() => void) | undefined;
+
+    const initializeAuth = async () => {
+      try {
+        const supabase = getSupabaseClient();
+        const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+          authEventReceived = true;
+          if (!active) return;
+          setSession(nextSession);
+          setAuthError('');
+          setIsAuthLoading(false);
+        });
+        unsubscribe = () => data.subscription.unsubscribe();
+
+        const { data: sessionData, error } = await supabase.auth.getSession();
+        if (error) throw error;
+        if (active && !authEventReceived) setSession(sessionData.session);
+      } catch (error) {
+        if (active) {
+          setAuthError(
+            error instanceof Error
+              ? error.message
+              : 'Could not check your sign-in status.',
+          );
+        }
+      } finally {
+        if (active) setIsAuthLoading(false);
+      }
+    };
+
+    void initializeAuth();
+    return () => {
+      active = false;
+      unsubscribe?.();
+    };
+  }, []);
+
+  const handleSignOut = async () => {
+    const { error } = await getSupabaseClient().auth.signOut();
+    if (error) throw error;
+  };
+
+  if (isAuthLoading) {
+    return (
+      <main className="auth-screen">
+        <p className="auth-loading" role="status">Checking your session…</p>
+      </main>
+    );
+  }
+
+  if (!session) {
+    return (
+      <AuthScreen
+        startupError={authError}
+        onClearStartupError={() => setAuthError('')}
+      />
+    );
+  }
+
+  return <MainApp session={session} onSignOut={handleSignOut} />;
+}
+
+function MainApp({ session, onSignOut }: MainAppProps) {
   const {
     needRefresh: [needRefresh, setNeedRefresh],
     updateServiceWorker,
@@ -846,6 +923,11 @@ export default function App() {
 
   const hasMembers = household.members.length > 0;
   const now = new Date();
+  const metadataFullName = session.user.user_metadata.full_name;
+  const profileName = typeof metadataFullName === 'string' && metadataFullName.trim()
+    ? metadataFullName.trim()
+    : 'User';
+  const userName = profileName.split(/\s+/)[0] || 'User';
   const hour = now.getHours();
   let timeGreeting = 'Good evening';
   if (hour < 12) {
@@ -853,9 +935,6 @@ export default function App() {
   } else if (hour < 18) {
     timeGreeting = 'Good afternoon';
   }
-  const myMemberId = getLocalMemberId(household.id || '');
-  const activeUser = household.members.find((member) => member.id === myMemberId);
-  const userName = activeUser ? activeUser.name : '';
   const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const todayText = `${currentMonth}-${String(now.getDate()).padStart(2, '0')}`;
   const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -1632,8 +1711,11 @@ export default function App() {
           <HouseholdSettings
             key={activeSpaceId}
             household={household}
+            profileName={profileName}
+            profileEmail={session.user.email ?? ''}
             theme={theme}
             setTheme={setTheme}
+            onSignOut={onSignOut}
             onUpdateHousehold={commitHousehold}
             onLoadDemo={() => commitHousehold(DEMO_HOUSEHOLD)}
             onResetEmpty={() => commitHousehold(createEmptyHousehold())}

@@ -19,7 +19,7 @@ export function isCloudConfigured(): boolean {
   return Boolean(getSupabaseUrl() && getSupabaseKey());
 }
 
-function getClient(): SupabaseClient {
+export function getSupabaseClient(): SupabaseClient {
   if (!isCloudConfigured()) {
     throw new Error(
       'Cloud sync is not configured. Set VITE_SUPABASE_URL and either ' +
@@ -224,7 +224,7 @@ function householdFromResponse(data: unknown): Household {
 }
 
 async function fetchRoom(roomCode: string, pinHash: string): Promise<Household> {
-  const { data, error } = await getClient().rpc('fetch_room_with_pin', {
+  const { data, error } = await getSupabaseClient().rpc('fetch_room_with_pin', {
     p_room_code: roomCode,
     p_pin_hash: pinHash,
   });
@@ -237,7 +237,7 @@ async function upsertRoom(
   pinHash: string,
   household: Household,
 ): Promise<void> {
-  const { error } = await getClient().rpc('upsert_room_with_pin', {
+  const { error } = await getSupabaseClient().rpc('upsert_room_with_pin', {
     p_room_code: roomCode,
     p_pin_hash: pinHash,
     p_household: household,
@@ -320,7 +320,7 @@ export function subscribeToRoom(
   roomCode: string,
   onRemoteUpdate: (remotePayload: unknown) => void,
 ): () => void {
-  const channel = getClient()
+  const channel = getSupabaseClient()
     .channel(`wallypad-room-${roomCode}`)
     .on(
       'postgres_changes',
@@ -334,6 +334,6 @@ export function subscribeToRoom(
     )
     .subscribe();
   return () => {
-    void getClient().removeChannel(channel);
+    void getSupabaseClient().removeChannel(channel);
   };
 }

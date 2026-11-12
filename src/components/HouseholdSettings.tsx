@@ -12,8 +12,11 @@ import {
 
 type Props = {
   household: Household;
+  profileName: string;
+  profileEmail: string;
   theme: 'light' | 'dark';
   setTheme: (theme: 'light' | 'dark') => void;
+  onSignOut: () => Promise<void>;
   onUpdateHousehold: (next: Household) => Promise<boolean>;
   onLoadDemo: () => Promise<boolean>;
   onResetEmpty: () => Promise<boolean>;
@@ -37,8 +40,11 @@ function getBudgetInputs(household: Household): Record<string, string> {
 
 export default function HouseholdSettings({
   household,
+  profileName,
+  profileEmail,
   theme,
   setTheme,
+  onSignOut,
   onUpdateHousehold,
   onLoadDemo,
   onResetEmpty,
@@ -64,6 +70,8 @@ export default function HouseholdSettings({
   const [editError, setEditError] = useState('');
   const [budgetError, setBudgetError] = useState('');
   const [reportError, setReportError] = useState('');
+  const [profileError, setProfileError] = useState('');
+  const [isSigningOut, setIsSigningOut] = useState(false);
   const [pendingReplacement, setPendingReplacement] =
     useState<ReplacementAction | null>(null);
   const [budgetInputs, setBudgetInputs] = useState<Record<string, string>>(
@@ -78,6 +86,20 @@ export default function HouseholdSettings({
   const cloudConfigured = isCloudConfigured();
   const myMemberId = getLocalMemberId(household.id);
   const isAdmin = household.adminId === undefined || myMemberId === household.adminId;
+
+  const handleSignOut = async () => {
+    setProfileError('');
+    setIsSigningOut(true);
+    try {
+      await onSignOut();
+    } catch (error) {
+      setProfileError(
+        error instanceof Error ? error.message : 'Could not log out.',
+      );
+    } finally {
+      setIsSigningOut(false);
+    }
+  };
 
   if (lastHouseholdName !== household.name) {
     setLastHouseholdName(household.name);
@@ -342,6 +364,16 @@ export default function HouseholdSettings({
 
   return (
     <div className="stack">
+      <section className="card profile-card" aria-label="User profile">
+        <div className="profile-avatar" aria-hidden="true">
+          {profileName.charAt(0).toUpperCase() || 'U'}
+        </div>
+        <div className="profile-details">
+          <h2>{profileName}</h2>
+          <p>{profileEmail}</p>
+        </div>
+      </section>
+
       <section className="card theme-settings-card">
         <div>
           <h2>App Theme</h2>
@@ -799,6 +831,22 @@ export default function HouseholdSettings({
           )}
         </section>
       )}
+
+      <section className="profile-logout-section">
+        {profileError && (
+          <p className="amount-neg" role="alert">
+            {profileError}
+          </p>
+        )}
+        <button
+          type="button"
+          className="profile-logout"
+          disabled={isSigningOut}
+          onClick={() => void handleSignOut()}
+        >
+          {isSigningOut ? 'Logging Out…' : 'Log Out'}
+        </button>
+      </section>
     </div>
   );
 }
