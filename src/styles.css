@@ -82,8 +82,9 @@ html[data-theme='light'] {
 
 html {
     overflow-x: hidden;
+    overflow-y: auto;
     scrollbar-gutter: stable;
-    overscroll-behavior-y: none;
+    overscroll-behavior-y: auto;
     -webkit-tap-highlight-color: transparent;
     user-select: none;
     touch-action: manipulation;
@@ -102,8 +103,10 @@ body {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     overflow-x: hidden;
+    overflow-y: auto;
     overscroll-behavior-x: none;
-    overscroll-behavior-y: none;
+    overscroll-behavior-y: auto;
+    -webkit-overflow-scrolling: touch;
     -webkit-tap-highlight-color: transparent;
     user-select: none;
     touch-action: manipulation;
@@ -151,10 +154,11 @@ textarea {
 .main-content {
     width: 100%;
     max-width: 600px;
+    min-height: 100vh;
     min-width: 0;
     margin: 0 auto;
     padding: 1rem;
-    padding-bottom: calc(90px + env(safe-area-inset-bottom));
+    padding-bottom: calc(100px + env(safe-area-inset-bottom));
     box-sizing: border-box;
     overflow-x: hidden;
 }
