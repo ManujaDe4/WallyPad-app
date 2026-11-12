@@ -349,6 +349,15 @@ button {
     box-shadow: var(--shadow-card);
 }
 
+.report-export-actions {
+    display: grid;
+    gap: 0.55rem;
+}
+
+.report-export-actions button {
+    width: 100%;
+}
+
 .create-space-actions {
     display: flex;
     gap: 0.5rem;
@@ -745,6 +754,19 @@ button {
 
 .filter-pill-bar button {
     flex-shrink: 0;
+}
+
+.welcome-greeting {
+    margin-bottom: 1rem;
+    padding: 0 0.25rem;
+}
+
+.welcome-greeting h2 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 0;
+    letter-spacing: -0.02em;
 }
 
 .period-filter {

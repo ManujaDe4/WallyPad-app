@@ -38,7 +38,7 @@ import {
   pushOrMergeRoom,
   subscribeToRoom,
 } from './lib/cloudSync';
-import { setLocalMemberId } from './lib/identity';
+import { getLocalMemberId, setLocalMemberId } from './lib/identity';
 
 type Tab = 'overview' | 'expenses' | 'needs' | 'repayments' | 'settings';
 
@@ -846,6 +846,16 @@ export default function App() {
 
   const hasMembers = household.members.length > 0;
   const now = new Date();
+  const hour = now.getHours();
+  let timeGreeting = 'Good evening';
+  if (hour < 12) {
+    timeGreeting = 'Good morning';
+  } else if (hour < 18) {
+    timeGreeting = 'Good afternoon';
+  }
+  const myMemberId = getLocalMemberId(household.id || '');
+  const activeUser = household.members.find((member) => member.id === myMemberId);
+  const userName = activeUser ? activeUser.name : '';
   const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const todayText = `${currentMonth}-${String(now.getDate()).padStart(2, '0')}`;
   const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -1255,6 +1265,9 @@ export default function App() {
         )}
         {!snapshot && activeTab === 'overview' && (
           <section>
+            <div className="welcome-greeting">
+              <h2>{timeGreeting}{userName ? `, ${userName}` : ''}</h2>
+            </div>
             <div className="filter-pill-bar">
               <div className="period-filter" role="group" aria-label="Spending period">
                 {([

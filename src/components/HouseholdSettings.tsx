@@ -1,10 +1,8 @@
 import { useState } from 'react';
-import type { ChangeEvent, FormEvent } from 'react';
+import type { FormEvent } from 'react';
 import type { Household } from '../types';
-import { exportBackupFile, validateBackupJson } from '../lib/backup';
 import { centsToInputString, parseMoney } from '../lib/money';
 import { exportCsvReport, exportPdfReport } from '../lib/reports';
-import { decryptBackupJson, encryptBackupJson } from '../lib/cryptoBackup';
 import { getLocalMemberId } from '../lib/identity';
 import {
   enableRoomSync,
@@ -64,11 +62,10 @@ export default function HouseholdSettings({
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const [editError, setEditError] = useState('');
-  const [backupError, setBackupError] = useState('');
-  const [restorePreview, setRestorePreview] = useState<Household | null>(null);
+  const [budgetError, setBudgetError] = useState('');
+  const [reportError, setReportError] = useState('');
   const [pendingReplacement, setPendingReplacement] =
     useState<ReplacementAction | null>(null);
-  const [backupPassword, setBackupPassword] = useState('');
   const [budgetInputs, setBudgetInputs] = useState<Record<string, string>>(
     () => getBudgetInputs(household),
   );
@@ -303,47 +300,6 @@ export default function HouseholdSettings({
     }
   };
 
-  const handleBackupFileChange = async (
-    event: ChangeEvent<HTMLInputElement>,
-  ) => {
-    const file = event.currentTarget.files?.[0];
-    event.currentTarget.value = '';
-    setBackupError('');
-    setRestorePreview(null);
-    if (!file) return;
-    if (file.size > 3 * 1024 * 1024) {
-      setBackupError('Backup file must be 3 MB or smaller.');
-      return;
-    }
-    try {
-      let rawText = await file.text();
-      let envelope: unknown;
-      try {
-        envelope = JSON.parse(rawText);
-      } catch {
-        envelope = null;
-      }
-      if (
-        typeof envelope === 'object' && envelope !== null &&
-        'format' in envelope &&
-        (envelope.format === 'WallyPadEncryptedBackup' ||
-          envelope.format === 'RoomSplitEncryptedBackup')
-      ) {
-        rawText = await decryptBackupJson(rawText, backupPassword);
-      }
-      const result = validateBackupJson(rawText);
-      if (result.ok === false) {
-        setBackupError(result.error);
-        return;
-      }
-      setRestorePreview(result.household);
-    } catch (error) {
-      setBackupError(
-        error instanceof Error ? error.message : 'Could not read backup file.',
-      );
-    }
-  };
-
   const runReplacement = (action: ReplacementAction) => {
     setPendingReplacement(action);
   };
@@ -364,19 +320,6 @@ export default function HouseholdSettings({
     }
   };
 
-  const confirmRestore = async () => {
-    if (!restorePreview) return;
-    const saved = await onUpdateHousehold(restorePreview);
-    if (saved) {
-      setRestorePreview(null);
-      setBackupError('');
-      setBudgetInputs(getBudgetInputs(restorePreview));
-      setMonthlyBudgetInput(restorePreview.monthlyBudgetCents === undefined
-        ? ''
-        : centsToInputString(restorePreview.monthlyBudgetCents));
-    }
-  };
-
   const saveBudgets = async () => {
     const budgets: Record<string, number> = {};
     for (const category of BUDGET_CATEGORIES) {
@@ -384,38 +327,17 @@ export default function HouseholdSettings({
       if (!rawValue) continue;
       const parsed = parseMoney(rawValue, { allowZero: true });
       if (parsed.ok === false) {
-        setBackupError(`${category} budget: ${parsed.error}`);
+        setBudgetError(`${category} budget: ${parsed.error}`);
         return;
       }
       if (parsed.cents > 0) budgets[category] = parsed.cents;
     }
-    setBackupError('');
+    setBudgetError('');
     await onUpdateHousehold({
       ...household,
       categoryBudgetsCents: budgets,
       updatedAt: new Date().toISOString().slice(0, 10),
     });
-  };
-
-  const exportEncryptedBackup = async () => {
-    try {
-      const content = await encryptBackupJson(JSON.stringify({
-        app: 'WallyPad',
-        schemaVersion: 1,
-        exportedAt: new Date().toISOString(),
-        household,
-      }, null, 2), backupPassword);
-      const link = document.createElement('a');
-      const url = URL.createObjectURL(new Blob([content], { type: 'application/json' }));
-      link.href = url;
-      link.download = `wallypad-encrypted-backup-${new Date().toISOString().slice(0, 10)}.json`;
-      document.body.append(link);
-      link.click();
-      link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 0);
-    } catch (error) {
-      setBackupError(error instanceof Error ? error.message : 'Could not encrypt backup.');
-    }
   };
 
   return (
@@ -800,96 +722,32 @@ export default function HouseholdSettings({
         <button type="button" className="primary" disabled={isSaving} onClick={() => void saveBudgets()}>
           Save Monthly Budgets
         </button>
+        {budgetError && (
+          <p className="amount-neg" role="alert">
+            {budgetError}
+          </p>
+        )}
       </section>
 
       <section className="card">
-        <h2>Backup &amp; Restore</h2>
-        <div className="form-group">
-          <label htmlFor="backup-password">Optional backup password</label>
-          <input
-            id="backup-password"
-            type="password"
-            autoComplete="new-password"
-            value={backupPassword}
-            onChange={(event) => setBackupPassword(event.target.value)}
-            placeholder="Use for encrypted export or import"
-          />
-          <p className="tx-sub">Keep this password safe; encrypted backups cannot be opened without it.</p>
-        </div>
-        <div className="form-group">
-          <label>Export JSON Backup</label>
-          <p className="tx-sub">
-            JSON backups contain personal household expense data.
-          </p>
-          <button
-            type="button"
-            className="primary"
-            onClick={() => exportBackupFile(household)}
-          >
-            Export JSON Backup
+        <h2>Export Reports</h2>
+        <div className="report-export-actions">
+          <button type="button" onClick={() => {
+            setReportError('');
+            try {
+              exportPdfReport(household);
+            } catch (error) {
+              setReportError(error instanceof Error ? error.message : 'Could not open PDF report.');
+            }
+          }}>📄 Export Weekly &amp; Monthly PDF Report</button>
+          <button type="button" onClick={() => exportCsvReport(household)}>
+            📊 Export CSV Spreadsheet
           </button>
-          <button type="button" onClick={() => void exportEncryptedBackup()} disabled={!backupPassword}>
-            🔐 Export AES-256 Encrypted Backup
-          </button>
-          <div className="export-actions">
-            <button type="button" onClick={() => {
-              try {
-                exportPdfReport(household);
-              } catch (error) {
-                setBackupError(error instanceof Error ? error.message : 'Could not open PDF report.');
-              }
-            }}>📄 Export Weekly &amp; Monthly PDF Report</button>
-            <button type="button" onClick={() => exportCsvReport(household)}>📊 Export CSV Spreadsheet</button>
-          </div>
         </div>
-        <div className="form-group">
-          <label htmlFor="backup-import">Import JSON Backup</label>
-          <input
-            id="backup-import"
-            type="file"
-            accept=".json,application/json"
-            disabled={isSaving}
-            onChange={handleBackupFileChange}
-          />
-        </div>
-        {backupError && (
+        {reportError && (
           <p className="amount-neg" role="alert">
-            {backupError}
+            {reportError}
           </p>
-        )}
-        {restorePreview && (
-          <div className="card" style={{ background: 'var(--surface-soft)' }}>
-            <h3>Confirm Household Restore</h3>
-            <p>
-              Restore <strong>{restorePreview.name}</strong> with{' '}
-              {restorePreview.members.length} members,{' '}
-              {restorePreview.expenses.length} expenses, and{' '}
-              {restorePreview.repayments.length} repayments?
-            </p>
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-              <button
-                type="button"
-                onClick={() => exportBackupFile(household)}
-              >
-                Export Current Data First
-              </button>
-              <button
-                type="button"
-                className="primary"
-                disabled={isSaving}
-                onClick={() => void confirmRestore()}
-              >
-                Confirm Restore
-              </button>
-              <button
-                type="button"
-                disabled={isSaving}
-                onClick={() => setRestorePreview(null)}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
         )}
       </section>
 
