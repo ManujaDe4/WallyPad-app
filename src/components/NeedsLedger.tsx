@@ -129,7 +129,7 @@ export default function NeedsLedger({
   };
 
   return (
-    <section className="stack needs-ledger" aria-labelledby="needs-ledger-title">
+    <section className="needs-ledger" aria-labelledby="needs-ledger-title">
       <div className="card needs-summary">
         <div>
           <span className="needs-summary-label">Monthly Needs Spend</span>

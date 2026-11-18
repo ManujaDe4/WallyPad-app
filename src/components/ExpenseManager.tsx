@@ -240,7 +240,7 @@ export default function ExpenseManager({
   });
 
   return (
-    <div className="stack">
+    <div className="section-head">
       <section className="card">
         <h2>{editingExpenseId ? 'Edit Expense' : 'New Shared Expense'}</h2>
         {!editingExpenseId && (
