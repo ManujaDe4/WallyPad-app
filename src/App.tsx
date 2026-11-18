@@ -241,8 +241,8 @@ export default function App() {
 
   if (isAuthLoading) {
     return (
-      <main className="auth-screen">
-        <p className="auth-loading" role="status">Checking your session…</p>
+      <main className="app-shell" data-accent="cyan">
+        <header className="top-pill-bar" data-accent="cyan"></header>
       </main>
     );
   }
@@ -1349,19 +1349,17 @@ function MainApp({ session, onSignOut }: MainAppProps) {
             </div>
             <div className="filter-pill-bar">
               <div className="period-filter" role="group" aria-label="Spending period">
-                {([
-                  ['all', 'All Time'],
-                  ['month', 'This Month'],
-                  ['week', 'This Week'],
-                ] as const).map(([value, label]) => (
-                  <button
-                    type="button"
-                    key={value}
-                    className={periodFilter === value ? 'active' : ''}
-                    aria-pressed={periodFilter === value}
-                    onClick={() => setPeriodFilter(value)}
-                  >{label}</button>
-                ))}
+                <div className="segmented-control">
+                  {(['all', 'month', 'week'] as const).map((value) => (
+                    <button
+                      key={value}
+                      type="button"
+                      className={`segment-btn ${periodFilter === value ? 'active' : ''}`}
+                      onClick={() => setPeriodFilter(value)}
+                    >{value.charAt(0).toUpperCase() + value.slice(1)}</button>
+                  ))}
+                </div>
+                <span className="segment-thumb" style={{ left: periodFilter === 'all' ? 0 : periodFilter === 'month' ? 33.33 : 66.66 }} />
               </div>
               <button type="button" className="report-button" onClick={() => {
                 try {
@@ -1383,52 +1381,64 @@ function MainApp({ session, onSignOut }: MainAppProps) {
                       : 'This Week'}</span>
                 <span>{filteredExpenses.length} Bills</span>
               </div>
-              <div className="hero-amount">
-                {heroParts.whole}
-                <span className="cents-part">{heroParts.decimals}</span>
-              </div>
-              {hasMonthlyBudget ? (
-                <div className="hero-budget">
-                  <div
-                    className="hero-budget-track"
-                    role="progressbar"
-                    aria-label="Monthly household budget spent"
-                    aria-valuemin={0}
-                    aria-valuemax={monthlyBudgetCents}
-                    aria-valuenow={Math.min(currentMonthSpendingCents, monthlyBudgetCents)}
-                  >
-                    <div
-                      className="hero-budget-fill"
-                      style={{ width: `${budgetSpentPercent}%` }}
-                    />
-                  </div>
-                  <p className="hero-sub">
-                    Spent {formatMoney(currentMonthSpendingCents)} of {formatMoney(monthlyBudgetCents)} limit
-                  </p>
+              <div className="hero-card">
+                <div className="hero-label">
+                  <span>{hasMonthlyBudget
+                    ? 'Remaining Monthly Wallet'
+                    : periodFilter === 'all'
+                      ? 'Total Household Spending'
+                      : periodFilter === 'month'
+                        ? 'This Month'
+                        : 'This Week'}</span>
+                  <span>{filteredExpenses.length} Bills</span>
                 </div>
-              ) : (
-                <p className="hero-sub">
-                  {suggestedTransfers.length === 0
-                    ? 'All housemate balances are settled'
-                    : `${suggestedTransfers.length} suggested transfer(s) to settle up`}
-                </p>
-              )}
-              <div className="hero-actions">
-                <button
-                  type="button"
-                  className="btn-hero-solid"
-                  disabled={!hasMembers}
-                  onClick={() => setActiveTab('expenses')}
-                >
-                  + Add Expense
-                </button>
-                <button
-                  type="button"
-                  className="btn-hero-glass"
-                  onClick={() => setActiveTab('repayments')}
-                >
-                  ↗ Settle Up
-                </button>
+                <div className="hero-amount">
+                  {heroParts.whole}
+                  <span className="cents-part">{heroParts.decimals}</span>
+                </div>
+                {hasMonthlyBudget ? (
+                  <div className="hero-budget">
+                    <div
+                      className="hero-budget-track"
+                      role="progressbar"
+                      aria-label="Monthly household budget spent"
+                      aria-valuemin={0}
+                      aria-valuemax={monthlyBudgetCents}
+                      aria-valuenow={Math.min(currentMonthSpendingCents, monthlyBudgetCents)}
+                    >
+                      <div
+                        className="hero-budget-fill"
+                        style={{ width: `${budgetSpentPercent}%` }}
+                      />
+                    </div>
+                    <p className="hero-sub">
+                      Spent {formatMoney(currentMonthSpendingCents)} of {formatMoney(monthlyBudgetCents)} limit
+                    </p>
+                  </div>
+                ) : (
+                  <p className="hero-sub">
+                    {suggestedTransfers.length === 0
+                      ? 'All housemate balances are settled'
+                      : `${suggestedTransfers.length} suggested transfer(s) to settle up`}
+                  </p>
+                )}
+                <div className="hero-actions">
+                  <button
+                    type="button"
+                    className="dock-fab primary"
+                    aria-label="Add Expense"
+                    onClick={() => setActiveTab('expenses')}
+                  >
+                    +
+                  </button>
+                  <button
+                    type="button"
+                    className="dock-item"
+                    onClick={() => setActiveTab('repayments')}
+                  >
+                    ↗ Settle Up
+                  </button>
+                </div>
               </div>
             </div>
 

@@ -382,7 +382,7 @@ export default function HouseholdSettings({
         <div className="theme-toggle" role="group" aria-label="App theme">
           <button
             type="button"
-            className={theme === 'light' ? 'active' : ''}
+            className={theme === 'light' ? 'dock-item active' : 'dock-item'}
             aria-pressed={theme === 'light'}
             onClick={() => setTheme('light')}
           >
@@ -390,7 +390,7 @@ export default function HouseholdSettings({
           </button>
           <button
             type="button"
-            className={theme === 'dark' ? 'active' : ''}
+            className={theme === 'dark' ? 'dock-item active' : 'dock-item'}
             aria-pressed={theme === 'dark'}
             onClick={() => setTheme('dark')}
           >
