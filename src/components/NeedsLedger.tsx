@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import type { CSSProperties } from 'react';
 import type { FormEvent } from 'react';
 import type { Household, NeedItem } from '../types';
 import { formatMoney, parseMoney, centsToInputString } from '../lib/money';
@@ -129,13 +130,13 @@ export default function NeedsLedger({
   };
 
   return (
-    <section className="needs-ledger" aria-labelledby="needs-ledger-title">
-      <div className="card needs-summary">
+    <section className="stack" aria-labelledby="needs-ledger-title">
+      <div className="card row-between">
         <div>
-          <span className="needs-summary-label">Monthly Needs Spend</span>
-          <h2 id="needs-ledger-title">{formatMoney(monthlySpendCents)}</h2>
+          <h2 id="needs-ledger-title">Monthly Needs Spend</h2>
+          <p className="money">{formatMoney(monthlySpendCents)}</p>
         </div>
-        <span className="needs-summary-icon" aria-hidden="true">
+        <span className="tx-avatar" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none">
             <path d="M7 3.75h7l4 4v12.5H7a2 2 0 0 1-2-2v-12.5a2 2 0 0 1 2-2Z" />
             <path d="M14 3.75v4h4M8.5 12h7M8.5 15.5h7" />
@@ -143,36 +144,42 @@ export default function NeedsLedger({
         </span>
       </div>
 
-      <form className="card needs-add-form" onSubmit={(event) => void handleAddNeed(event)}>
-        <label className="sr-only" htmlFor="new-recurring-need">Add new recurring need</label>
-        <input
-          id="new-recurring-need"
-          value={newNeedName}
-          onChange={(event) => setNewNeedName(event.target.value)}
-          maxLength={80}
-          placeholder="+ Add new recurring need..."
-          disabled={isSaving}
-        />
+      <form className="card" onSubmit={(event) => void handleAddNeed(event)}>
+        <div className="form-group">
+          <label htmlFor="new-recurring-need">Add recurring need</label>
+          <input
+            id="new-recurring-need"
+            value={newNeedName}
+            onChange={(event) => setNewNeedName(event.target.value)}
+            maxLength={80}
+            placeholder="e.g., Rice or soap"
+            disabled={isSaving}
+          />
+        </div>
         <button type="submit" className="primary" disabled={isSaving}>
-          Add
+          Add Need
         </button>
-        {formError && <p className="needs-error" role="alert">{formError}</p>}
+        {formError && <p className="amount-neg" role="alert">{formError}</p>}
       </form>
 
-      {itemError && <p className="needs-error" role="alert">{itemError}</p>}
+      {itemError && <p className="amount-neg" role="alert">{itemError}</p>}
       {sortedItems.length === 0 ? (
         <div className="empty-state">
           <p>Your recurring essentials will live here.</p>
           <p>Add your first need, like rice or soap.</p>
         </div>
       ) : (
-        <div className="needs-list" aria-label="Recurring needs">
-          {sortedItems.map((item) => (
-            <article className={`needs-item ${item.isChecked ? 'is-checked' : ''}`} key={item.id}>
-              <div className="needs-item-main">
+        <div className="tx-list" aria-label="Recurring needs">
+          {sortedItems.map((item, index) => (
+            <article
+              className="tx-row"
+              key={item.id}
+              style={{ '--i': Math.min(index, 7) } as CSSProperties}
+            >
+              <div className="tx-left">
                 <button
                   type="button"
-                  className={`needs-checkbox ${item.isChecked ? 'checked' : ''}`}
+                  className="circular"
                   aria-label={item.isChecked ? `Mark ${item.name} as needed` : `Mark ${item.name} as bought`}
                   aria-pressed={item.isChecked}
                   disabled={isSaving}
@@ -184,13 +191,56 @@ export default function NeedsLedger({
                     </svg>
                   )}
                 </button>
-                <span className="needs-item-name">{item.name}</span>
-                <span className="needs-item-price">
+                <div className="tx-info">
+                  <p className="tx-title">{item.name}</p>
+                  {item.lastPurchasedAt && (
+                    <p className="tx-sub">Last purchased {item.lastPurchasedAt}</p>
+                  )}
+                  {editingPriceId === item.id && (
+                    <form
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void handleCheckOff(item);
+                      }}
+                    >
+                      <div className="form-group">
+                        <label htmlFor={`need-price-${item.id}`}>Price paid (LKR)</label>
+                        <input
+                          id={`need-price-${item.id}`}
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          inputMode="decimal"
+                          value={priceInput}
+                          onChange={(event) => setPriceInput(event.target.value)}
+                          autoFocus
+                          disabled={isSaving}
+                        />
+                      </div>
+                      <div className="row-between">
+                        <button type="submit" className="primary" disabled={isSaving}>
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          className="ghost"
+                          onClick={() => setEditingPriceId(null)}
+                          disabled={isSaving}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  )}
+                </div>
+              </div>
+              <div className="tx-right">
+                <strong className="money">
                   {item.lastPriceCents > 0 ? formatMoney(item.lastPriceCents) : '—'}
-                </span>
+                </strong>
                 <button
                   type="button"
-                  className="needs-delete"
+                  className="icon-btn"
                   aria-label={`Delete ${item.name}`}
                   disabled={isSaving}
                   onClick={() => void handleDelete(item)}
@@ -200,40 +250,6 @@ export default function NeedsLedger({
                   </svg>
                 </button>
               </div>
-              {editingPriceId === item.id && (
-                <form
-                  className="needs-price-form"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void handleCheckOff(item);
-                  }}
-                >
-                  <label htmlFor={`need-price-${item.id}`}>Price paid? (LKR)</label>
-                  <div className="needs-price-controls">
-                    <input
-                      id={`need-price-${item.id}`}
-                      type="number"
-                      min="0.01"
-                      step="0.01"
-                      inputMode="decimal"
-                      value={priceInput}
-                      onChange={(event) => setPriceInput(event.target.value)}
-                      autoFocus
-                      disabled={isSaving}
-                    />
-                    <button type="submit" className="primary" disabled={isSaving}>
-                      Save
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setEditingPriceId(null)}
-                      disabled={isSaving}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </form>
-              )}
             </article>
           ))}
         </div>

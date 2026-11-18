@@ -45,16 +45,19 @@ export default function OnboardingModal({
   };
 
   return (
-    <div className="onboarding-backdrop">
+    <div className="spaces-modal-backdrop">
       <section
-        className="onboarding-card"
+        className="spaces-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby="onboarding-title"
         aria-describedby="onboarding-description"
       >
-        <div className="onboarding-welcome-avatar" aria-hidden="true">{avatar}</div>
-        <h2 id="onboarding-title">Welcome to the flat!</h2>
+        <span className="sheet-handle" aria-hidden="true" />
+        <div className="row-between">
+          <h2 id="onboarding-title">Welcome to the flat!</h2>
+          <span className="avatar-circle" aria-hidden="true">{avatar}</span>
+        </div>
         <p id="onboarding-description" className="tx-sub">
           You’re joining <strong>{householdName}</strong>. What should your housemates call you?
         </p>
@@ -75,14 +78,14 @@ export default function OnboardingModal({
               placeholder="e.g., Kavindu"
             />
           </div>
-          <fieldset className="onboarding-avatar-picker">
+          <fieldset className="form-group">
             <legend>Choose your avatar</legend>
-            <div className="onboarding-avatar-options">
+            <div className="export-actions">
               {AVATARS.map((option) => (
                 <button
                   key={option}
                   type="button"
-                  className="onboarding-avatar-option"
+                  className={`participant-chip ${avatar === option ? 'selected' : ''}`}
                   aria-label={`Choose ${option} avatar`}
                   aria-pressed={avatar === option}
                   onClick={() => setAvatar(option)}
@@ -95,11 +98,11 @@ export default function OnboardingModal({
           {(validationError || error) && (
             <p className="amount-neg" role="alert">{validationError || error}</p>
           )}
-          <div className="onboarding-actions">
+          <div className="export-actions">
             <button type="submit" className="primary" disabled={isSaving}>
               {isSaving ? 'Joining…' : 'Join Shared Flat'}
             </button>
-            <button type="button" disabled={isSaving} onClick={onCancel}>Not now</button>
+            <button type="button" className="ghost" disabled={isSaving} onClick={onCancel}>Not now</button>
           </div>
         </form>
       </section>

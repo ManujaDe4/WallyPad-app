@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { FormEvent } from 'react';
+import type { CSSProperties, FormEvent } from 'react';
 import type { Expense, Household } from '../types';
 import { centsToInputString, formatMoney } from '../lib/money';
 import { buildCustomSplit, splitEqual } from '../lib/split';
@@ -240,11 +240,11 @@ export default function ExpenseManager({
   });
 
   return (
-    <div className="section-head">
+    <div>
       <section className="card">
         <h2>{editingExpenseId ? 'Edit Expense' : 'New Shared Expense'}</h2>
         {!editingExpenseId && (
-          <div className="preset-chips" aria-label="Quick-fill expense presets">
+          <div className="export-actions" aria-label="Quick-fill expense presets">
             {[
               { label: '⚡ CEB Electricity', title: 'CEB Electricity', category: 'Utilities' },
               { label: '🏠 Monthly Rent', title: 'Monthly Rent', category: 'Rent' },
@@ -271,13 +271,16 @@ export default function ExpenseManager({
 
         {/* Segmented Split Mode Switcher */}
         <div
-          className="segmented-control"
+          className="segmented"
           role="group"
           aria-label="Split mode"
+          style={{ '--n': 2, '--i': splitMode === 'equal' ? 0 : 1 } as CSSProperties}
         >
+          <span className="seg-thumb" aria-hidden="true" />
           <button
             type="button"
-            className={`segment-btn ${splitMode === 'equal' ? 'active' : ''}`}
+            className={`seg-btn ${splitMode === 'equal' ? 'active' : ''}`}
+            aria-pressed={splitMode === 'equal'}
             onClick={() => {
               setSplitMode('equal');
               setFormError('');
@@ -287,7 +290,8 @@ export default function ExpenseManager({
           </button>
           <button
             type="button"
-            className={`segment-btn ${splitMode === 'custom' ? 'active' : ''}`}
+            className={`seg-btn ${splitMode === 'custom' ? 'active' : ''}`}
+            aria-pressed={splitMode === 'custom'}
             onClick={() => {
               setSplitMode('custom');
               setFormError('');
@@ -312,7 +316,7 @@ export default function ExpenseManager({
             />
           </div>
 
-          <div className="row-between" style={{ gap: '0.65rem' }}>
+          <div className="row-between">
             <div className="form-group" style={{ flex: 1 }}>
               <label htmlFor="exp-amount">Amount (LKR)</label>
               <input
@@ -331,8 +335,10 @@ export default function ExpenseManager({
                 placeholder="0.00"
               />
               {parsedAmountPreview?.ok && (
-                <small className="amount-preview">
+                <small className="tx-sub">
+                  <span className="money">
                   = {formatMoney(parsedAmountPreview.cents)}
+                  </span>
                 </small>
               )}
             </div>
@@ -353,7 +359,7 @@ export default function ExpenseManager({
             </div>
           </div>
 
-          <div className="row-between" style={{ gap: '0.65rem' }}>
+          <div className="row-between">
             <div className="form-group" style={{ flex: 1 }}>
               <label htmlFor="exp-category">Category</label>
               <select
@@ -380,51 +386,24 @@ export default function ExpenseManager({
             </div>
           </div>
 
-          <fieldset
-            style={{
-              border: '1px solid var(--border)',
-              borderRadius: '14px',
-              padding: '0.75rem',
-              marginBottom: '0.85rem',
-              background: 'var(--surface-soft)',
-            }}
-          >
-            <legend
-              style={{
-                fontWeight: 700,
-                fontSize: '0.82rem',
-                padding: '0 0.35rem',
-              }}
-            >
+          <fieldset className="card">
+            <legend>
               Split Between ({participantIds.length} selected)
             </legend>
-            <div
-              style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}
-            >
+            <div className="row-between">
               {members.map((m) => {
                 const checked = participantIds.includes(m.id);
                 return (
                   <label
                     key={m.id}
                     htmlFor={`participant-${m.id}`}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '0.4rem',
-                      padding: '0.35rem 0.7rem',
-                      borderRadius: '999px',
-                      background: checked ? 'var(--accent-soft)' : 'var(--bg-surface)',
-                      border: `1px solid ${checked ? 'var(--cyan-main)' : 'var(--border)'}`,
-                      cursor: 'pointer',
-                      fontSize: '0.84rem',
-                    }}
+                    className={`participant-chip ${checked ? 'selected' : ''}`}
                   >
                     <input
                       id={`participant-${m.id}`}
                       type="checkbox"
                       checked={checked}
                       onChange={() => handleToggleParticipant(m.id)}
-                      style={{ width: 'auto', margin: 0 }}
                     />
                     <span>{m.name}</span>
                   </label>
@@ -434,32 +413,16 @@ export default function ExpenseManager({
           </fieldset>
 
           {splitMode === 'equal' && equalPreviewResult?.ok && (
-            <div
-              style={{
-                background: 'var(--accent-soft)',
-                padding: '0.75rem 0.9rem',
-                borderRadius: '12px',
-                marginBottom: '0.85rem',
-                fontSize: '0.84rem',
-              }}
-            >
+            <div className="card">
               <strong>Equal Split Preview:</strong>
-              <div
-                style={{
-                  display: 'flex',
-                  flexWrap: 'wrap',
-                  gap: '0.5rem',
-                  marginTop: '0.4rem',
-                }}
-              >
+              <div className="export-actions">
                 {equalPreviewResult.shares.map((s) => (
                   <span
                     key={s.memberId}
-                    className="badge"
-                    style={{ background: 'var(--bg-surface)' }}
+                    className="participant-chip"
                   >
                     {getMemberName(s.memberId)}:{' '}
-                    <strong>{formatMoney(s.amountCents)}</strong>
+                    <strong className="money">{formatMoney(s.amountCents)}</strong>
                   </span>
                 ))}
               </div>
@@ -467,18 +430,20 @@ export default function ExpenseManager({
           )}
 
           {splitMode === 'equal' && (
-            <details className="compact-disclosure">
+            <details className="card">
               <summary>+ Deduct personal items first?</summary>
-              <label className="inline-toggle">
-                <input
-                  type="checkbox"
-                  checked={deductPersonalItems}
-                  onChange={(event) => setDeductPersonalItems(event.target.checked)}
-                />
-                Enter each member's personal item total
-              </label>
+              <div className="form-group">
+                <label className="participant-chip">
+                  <input
+                    type="checkbox"
+                    checked={deductPersonalItems}
+                    onChange={(event) => setDeductPersonalItems(event.target.checked)}
+                  />
+                  Enter each member's personal item total
+                </label>
+              </div>
               {deductPersonalItems && participantIds.map((memberId) => (
-                <div className="row-between personal-item-row" key={memberId}>
+                <div className="form-group" key={memberId}>
                   <label htmlFor={`personal-${memberId}`}>{getMemberName(memberId)}</label>
                   <input
                     id={`personal-${memberId}`}
@@ -506,20 +471,13 @@ export default function ExpenseManager({
 
           {splitMode === 'custom' && participantIds.length > 0 && (
             <div
-              className="stack"
-              style={{
-                background: 'var(--surface-soft)',
-                padding: '0.85rem',
-                borderRadius: '14px',
-                marginBottom: '0.85rem',
-                border: '1px solid var(--border)',
-              }}
+              className="card"
             >
-              <strong style={{ fontSize: '0.84rem' }}>
+              <strong>
                 Custom Share per Housemate (LKR):
               </strong>
               {participantIds.map((memberId) => (
-                <div key={memberId} className="row-between">
+                <div key={memberId} className="form-group">
                   <label htmlFor={`custom-share-${memberId}`}>
                     {getMemberName(memberId)}
                   </label>
@@ -537,7 +495,6 @@ export default function ExpenseManager({
                       }));
                       setFormError('');
                     }}
-                    style={{ maxWidth: '150px' }}
                   />
                 </div>
               ))}
@@ -548,23 +505,21 @@ export default function ExpenseManager({
             <p
               className="amount-neg"
               role="alert"
-              style={{ marginTop: 0, fontSize: '0.86rem' }}
             >
               {formError}
             </p>
           )}
 
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <div className="row-between">
             <button
               type="submit"
               className="primary"
-              style={{ flex: 1 }}
               disabled={isSaving}
             >
               {editingExpenseId ? 'Update Expense' : '+ Save Expense'}
             </button>
             {editingExpenseId && (
-              <button type="button" onClick={resetForm}>
+              <button type="button" className="ghost" onClick={resetForm}>
                 Cancel
               </button>
             )}
@@ -573,15 +528,10 @@ export default function ExpenseManager({
       </section>
 
       {/* Filter Bar */}
-      <section className="card" style={{ padding: '0.85rem 1rem' }}>
-        <div className="row-between" style={{ gap: '0.65rem' }}>
-          <div style={{ flex: 2 }}>
-            <label
-              htmlFor="search-expenses"
-              style={{ display: 'block', marginBottom: '0.25rem' }}
-            >
-              Search Bills
-            </label>
+      <section className="card">
+        <div className="row-between">
+          <div className="form-group" style={{ flex: 2 }}>
+            <label htmlFor="search-expenses">Search Bills</label>
             <input
               id="search-expenses"
               type="search"
@@ -591,13 +541,8 @@ export default function ExpenseManager({
             />
           </div>
 
-          <div style={{ flex: 1 }}>
-            <label
-              htmlFor="filter-category"
-              style={{ display: 'block', marginBottom: '0.25rem' }}
-            >
-              Category
-            </label>
+          <div className="form-group" style={{ flex: 1 }}>
+            <label htmlFor="filter-category">Category</label>
             <select
               id="filter-category"
               value={categoryFilter}
@@ -620,112 +565,79 @@ export default function ExpenseManager({
       </div>
 
       {filteredExpenses.length === 0 ? (
-        <div className="empty-state">
-          <p>No matching expenses found.</p>
-        </div>
+        <div className="empty-state">No matching expenses found.</div>
       ) : (
         <div className="tx-list">
-          {filteredExpenses.map((exp) => (
-            <div
+          {filteredExpenses.map((exp, index) => (
+            <article
               key={exp.id}
               className="tx-row"
-              style={{ flexDirection: 'column', alignItems: 'stretch' }}
+              style={{ '--i': Math.min(index, 7) } as CSSProperties}
             >
-              <div className="row-between">
-                <div className="tx-left">
-                  <div className="tx-avatar" aria-hidden="true">
-                    {CATEGORY_ICONS[exp.category] ?? '🧾'}
-                  </div>
-                  <div className="tx-info">
-                    <p className="tx-title">{exp.title}</p>
-                    <div className="tx-sub">
-                      Paid by <strong>{getMemberName(exp.paidById)}</strong>{' '}
-                      • {exp.date}
-                    </div>
-                  </div>
+              <div className="tx-left">
+                <div className="tx-avatar" aria-hidden="true">
+                  {CATEGORY_ICONS[exp.category] ?? '🧾'}
                 </div>
-
-                <div className="tx-right">
-                  <div style={{ fontWeight: 800, fontSize: '0.96rem' }}>
-                    {formatMoney(exp.amountCents)}
+                <div className="tx-info">
+                  <p className="tx-title">{exp.title}</p>
+                  <div className="tx-sub">
+                    Paid by <strong>{getMemberName(exp.paidById)}</strong> · {exp.date}
                   </div>
-                  <span className="badge">{exp.splitMode}</span>
+                  <div className="tx-sub">
+                    {exp.shares.map((share, shareIndex) => (
+                      <span key={share.memberId}>
+                        {shareIndex > 0 ? ' · ' : ''}
+                        {getMemberName(share.memberId)}:{' '}
+                        <span className="money">{formatMoney(share.amountCents)}</span>
+                      </span>
+                    ))}
+                  </div>
                 </div>
               </div>
-
-              <div
-                className="row-between"
-                style={{
-                  borderTop: '1px solid var(--border)',
-                  paddingTop: '0.55rem',
-                  marginTop: '0.35rem',
-                  fontSize: '0.76rem',
-                  color: 'var(--muted)',
-                }}
-              >
-                <span>
-                  {exp.shares
-                    .map(
-                      (s) =>
-                        `${getMemberName(s.memberId)}: ${formatMoney(s.amountCents)}`,
-                    )
-                    .join(' • ')}
-                </span>
-
+              <div className="tx-right">
+                <strong className="tx-amount money">{formatMoney(exp.amountCents)}</strong>
+                <span className="pill">{exp.splitMode}</span>
                 {confirmDeleteId === exp.id ? (
-                  <div style={{ display: 'flex', gap: '0.35rem' }}>
+                  <div className="export-actions">
                     <button
                       type="button"
                       className="danger"
                       disabled={isSaving}
                       onClick={() => void handleDeleteExpense(exp.id)}
-                      style={{
-                        padding: '0.25rem 0.6rem',
-                        fontSize: '0.75rem',
-                      }}
                     >
                       Confirm
                     </button>
                     <button
                       type="button"
+                      className="ghost"
                       disabled={isSaving}
                       onClick={() => setConfirmDeleteId(null)}
-                      style={{
-                        padding: '0.25rem 0.6rem',
-                        fontSize: '0.75rem',
-                      }}
                     >
                       Cancel
                     </button>
                   </div>
                 ) : (
-                  <div style={{ display: 'flex', gap: '0.35rem' }}>
+                  <div className="export-actions">
                     <button
                       type="button"
+                      className="ghost"
                       disabled={isSaving}
                       onClick={() => handleStartEdit(exp)}
-                      style={{
-                        padding: '0.25rem 0.6rem',
-                        fontSize: '0.75rem',
-                      }}
                     >
                       Edit
                     </button>
                     <button
                       type="button"
+                      className="ghost"
                       disabled={isSaving}
                       onClick={() => setConfirmDeleteId(exp.id)}
-                      style={{
-                        padding: '0.25rem 0.6rem',
-                        fontSize: '0.75rem',
-                      }}
                     >
                       Delete
                     </button>
                   </div>
                 )}
               </div>
-            </div>
+            </article>
           ))}
         </div>
       )}

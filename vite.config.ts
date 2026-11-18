@@ -8,6 +8,10 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'prompt',
+      workbox: {
+        // Precache self-hosted fonts so the PWA works fully offline
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest,woff2}'],
+      },
       manifest: {
         name: 'WallyPad',
         short_name: 'WallyPad',

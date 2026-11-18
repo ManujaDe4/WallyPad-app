@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { FormEvent } from 'react';
-import { createPortal } from 'react-dom';
+import type { CSSProperties, FormEvent } from 'react';
+import { createPortal, flushSync } from 'react-dom';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import type { Session } from '@supabase/supabase-js';
 import type { Household, LocalIdentity, Member, Space, SpaceAccent } from './types';
@@ -183,12 +183,117 @@ function getRemoteHousehold(payload: unknown): Household | null {
   return value as Household;
 }
 
-const CATEGORY_COLORS: Record<string, string> = {
-  Groceries: '#D97706',
-  Utilities: '#2A9D8F',
-  Rent: '#2563EB',
-  Other: '#7C3AED',
-};
+type BlockColor = 'lime' | 'sun' | 'coral' | 'sky' | 'violet';
+
+const CATEGORY_BLOCKS = new Map<string, BlockColor>([
+  ['Groceries', 'lime'],
+  ['Rent', 'violet'],
+  ['Utilities', 'sky'],
+  ['Other', 'sun'],
+]);
+const BLOCK_CYCLE: BlockColor[] = ['coral', 'lime', 'sky', 'sun', 'violet'];
+
+/** Stable colour for a category; unknown categories hash into the palette. */
+function categoryBlock(category: string): BlockColor {
+  const known = CATEGORY_BLOCKS.get(category);
+  if (known) return known;
+  let hash = 0;
+  for (let i = 0; i < category.length; i += 1) {
+    hash = (hash * 31 + category.charCodeAt(i)) >>> 0;
+  }
+  return BLOCK_CYCLE[hash % BLOCK_CYCLE.length];
+}
+
+const SUPPORTS_VIEW_TRANSITIONS =
+  typeof document !== 'undefined' && 'startViewTransition' in document;
+const VIEW_CLASS = SUPPORTS_VIEW_TRANSITIONS ? 'view' : 'view view-enter';
+
+function prefersReducedMotion(): boolean {
+  return typeof window !== 'undefined' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+function haptic() {
+  if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+    navigator.vibrate(8);
+  }
+}
+
+const iconProps = {
+  viewBox: '0 0 24 24',
+  fill: 'none',
+  stroke: 'currentColor',
+  strokeWidth: 1.9,
+  strokeLinecap: 'round',
+  strokeLinejoin: 'round',
+  'aria-hidden': true,
+  focusable: false,
+} as const;
+
+const IconHome = () => (
+  <svg {...iconProps}><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1Z" /></svg>
+);
+const IconBills = () => (
+  <svg {...iconProps}><path d="M6 3h12v18l-3-2-3 2-3-2-3 2Z" /><path d="M9 8h6M9 12h6" /></svg>
+);
+const IconList = () => (
+  <svg {...iconProps}>
+    <path d="M7 3.75h10a2 2 0 0 1 2 2v14.5H5V5.75a2 2 0 0 1 2-2Z" />
+    <path d="m8 10 1.5 1.5L12 9m2 1h3m-9 5 1.5 1.5L12 14m2 1h3" />
+  </svg>
+);
+const IconSettings = () => (
+  <svg {...iconProps}>
+    <path d="M4 7h9M19 7h1M4 17h1M11 17h9" /><circle cx="16" cy="7" r="2.5" /><circle cx="8" cy="17" r="2.5" />
+  </svg>
+);
+const IconPlus = () => (
+  <svg {...iconProps} strokeWidth={2.6}><path d="M12 5v14M5 12h14" /></svg>
+);
+const IconArrow = () => (
+  <svg {...iconProps} strokeWidth={2.4}><path d="M7 17 17 7M8 7h9v9" /></svg>
+);
+const IconChevron = () => (
+  <svg {...iconProps} strokeWidth={2.4}><path d="m6 9 6 6 6-6" /></svg>
+);
+const IconClose = () => (
+  <svg {...iconProps} strokeWidth={2.4}><path d="M6 6l12 12M18 6 6 18" /></svg>
+);
+const IconDoc = () => (
+  <svg {...iconProps}><path d="M7 3h7l5 5v13H7Z" /><path d="M14 3v5h5" /></svg>
+);
+
+/** Hero amount that counts up smoothly (instant under reduced motion). */
+function AnimatedMoney({ cents }: { cents: number }) {
+  const [shown, setShown] = useState(() => (prefersReducedMotion() ? cents : 0));
+  const fromRef = useRef(shown);
+
+  useEffect(() => {
+    const from = fromRef.current;
+    const duration = prefersReducedMotion() ? 0 : 520;
+    const startedAt = performance.now();
+    let frame = 0;
+    const tick = (now: number) => {
+      const progress = duration === 0 ? 1 : Math.min((now - startedAt) / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      const value = Math.round(from + (cents - from) * eased);
+      fromRef.current = value;
+      setShown(value);
+      if (progress < 1) frame = window.requestAnimationFrame(tick);
+    };
+    frame = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(frame);
+  }, [cents]);
+
+  const parts = splitHeroCurrency(shown);
+  return (
+    <>
+      {parts.whole}
+      <span className="cents-part">{parts.decimals}</span>
+    </>
+  );
+}
+
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
@@ -241,8 +346,11 @@ export default function App() {
 
   if (isAuthLoading) {
     return (
-      <main className="app-shell" data-accent="cyan">
-        <header className="top-pill-bar" data-accent="cyan"></header>
+      <main className="app-shell" data-accent="cyan" aria-busy="true">
+        <header className="top-pill-bar" data-accent="cyan">
+          <span className="skeleton-item skeleton-pill" aria-hidden="true" />
+        </header>
+        <span className="sr-only" role="status">Checking your sign-in status…</span>
       </main>
     );
   }
@@ -898,6 +1006,58 @@ function MainApp({ session, onSignOut }: MainAppProps) {
       });
   }, [activeSpaceId, household, isOnline, persistCloudHousehold]);
 
+  const [dockHidden, setDockHidden] = useState(false);
+
+  useEffect(() => {
+    let lastY = window.scrollY;
+    let ticking = false;
+    const onScroll = () => {
+      if (ticking) return;
+      ticking = true;
+      window.requestAnimationFrame(() => {
+        const y = window.scrollY;
+        const scrollable =
+          document.documentElement.scrollHeight - window.innerHeight > 240;
+        if (!scrollable || y < 80) {
+          setDockHidden(false);
+          lastY = y;
+        } else if (y - lastY > 10) {
+          setDockHidden(true);
+          lastY = y;
+        } else if (lastY - y > 10) {
+          setDockHidden(false);
+          lastY = y;
+        }
+        ticking = false;
+      });
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  const navigate = (tab: Tab) => {
+    haptic();
+    setDockHidden(false);
+    if (tab === activeTab) {
+      window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+      return;
+    }
+    const apply = () => {
+      setActiveTab(tab);
+      window.scrollTo(0, 0);
+    };
+    const doc = document as Document & {
+      startViewTransition?: (update: () => void) => unknown;
+    };
+    if (doc.startViewTransition && !prefersReducedMotion()) {
+      doc.startViewTransition(() => {
+        flushSync(apply);
+      });
+    } else {
+      apply();
+    }
+  };
+
   const dismissSnapshot = () => {
     setSnapshot(null);
     const url = new URL(window.location.href);
@@ -908,8 +1068,15 @@ function MainApp({ session, onSignOut }: MainAppProps) {
   if (isLoading || household === null) {
     return (
       <div className="app-shell">
-        <div className="card" role="status" aria-live="polite">
+        <div className="card state-card" role="status" aria-live="polite">
           <h2>{isLoading ? 'Loading your household…' : 'Storage unavailable'}</h2>
+          {isLoading && (
+            <div className="skeleton-stack" aria-hidden="true">
+              <div className="skeleton-item skeleton-hero" />
+              <div className="skeleton-item skeleton-row" />
+              <div className="skeleton-item skeleton-row" />
+            </div>
+          )}
           {storageError && <p className="amount-neg">{storageError}</p>}
           {!isLoading && storageError && (
             <button type="button" className="primary" onClick={retrySave}>
@@ -971,9 +1138,15 @@ function MainApp({ session, onSignOut }: MainAppProps) {
   const budgetSpentPercent = hasMonthlyBudget
     ? Math.min((currentMonthSpendingCents / monthlyBudgetCents) * 100, 100)
     : 0;
-  const heroParts = splitHeroCurrency(
-    hasMonthlyBudget ? remainingWalletCents : totalSpendingCents,
-  );
+  const heroCents = hasMonthlyBudget ? remainingWalletCents : totalSpendingCents;
+  const budgetState: 'ok' | 'near' | 'over' = !hasMonthlyBudget
+    ? 'ok'
+    : remainingWalletCents < 0
+      ? 'over'
+      : budgetSpentPercent >= 80
+        ? 'near'
+        : 'ok';
+  const budgetStateLabel = { ok: 'On track', near: 'Nearing limit', over: 'Over budget' }[budgetState];
 
   // Calculate settled (repayment) totals
   const totalRepaidCents = household.repayments.reduce(
@@ -997,6 +1170,13 @@ function MainApp({ session, onSignOut }: MainAppProps) {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 4);
 
+  const categoryCounts = new Map<string, number>();
+  for (const exp of filteredExpenses) {
+    categoryCounts.set(exp.category, (categoryCounts.get(exp.category) ?? 0) + 1);
+  }
+  const periodOptions = ['all', 'month', 'week'] as const;
+  const periodIndex = periodOptions.indexOf(periodFilter);
+
   const getMemberName = (id: string) =>
     household.members.find((m) => m.id === id)?.name ?? 'Unknown';
   const hasCloudRoom = Boolean(
@@ -1006,7 +1186,12 @@ function MainApp({ session, onSignOut }: MainAppProps) {
   const isSyncLive = hasCloudRoom && (
     !isSyncPending || liveSyncRoomCode === household.syncRoomCode
   );
-  const syncStatus = !hasCloudRoom ? '☁️' : isSyncLive ? '🟢' : '⏳';
+  const syncState: 'local' | 'live' | 'pending' = !hasCloudRoom
+    ? 'local'
+    : isSyncLive
+      ? 'live'
+      : 'pending';
+  const syncShortLabel = { local: 'Local', live: 'Live', pending: 'Pending' }[syncState];
   const syncStatusLabel = !hasCloudRoom
     ? 'Local only'
     : isSyncLive
@@ -1015,7 +1200,7 @@ function MainApp({ session, onSignOut }: MainAppProps) {
 
   return (
     <div className="app-shell" data-accent={household.themeAccent ?? 'cyan'}>
-      {/* Top Neo-Bank Profile Pill Header */}
+      {/* Top profile pill header */}
       <header className="top-pill-bar" data-accent={household.themeAccent ?? 'cyan'}>
         <button
           type="button"
@@ -1024,43 +1209,45 @@ function MainApp({ session, onSignOut }: MainAppProps) {
           aria-haspopup="dialog"
           onClick={() => setSpacesOpen((open) => !open)}
         >
-          <div className="profile-cluster">
-            <div className="avatar-circle" aria-hidden="true">
+          <span className="profile-cluster">
+            <span className="avatar-circle" aria-hidden="true">
               {household.name.charAt(0).toUpperCase()}
-            </div>
-            <div className="profile-meta">
-              <h1 className="profile-title">{household.name}</h1>
-            </div>
-            <span className="profile-dropdown" aria-hidden="true">▾</span>
-          </div>
+            </span>
+            <span className="profile-title">{household.name}</span>
+            <span className="profile-dropdown" aria-hidden="true"><IconChevron /></span>
+          </span>
         </button>
         <div className="pill-badges">
           <span className="icon-chip">{household.currency}</span>
           <button
             type="button"
-            className={`icon-chip sync-status-chip ${isSyncLive ? 'sync-live' : ''}`}
-            onClick={() => setActiveTab('settings')}
+            className={`sync-chip sync-${syncState}`}
+            onClick={() => navigate('settings')}
             aria-label={syncStatusLabel}
             title={syncStatusLabel}
           >
-            {syncStatus}
+            <span className="sync-dot" aria-hidden="true" />
+            <span className="sync-text">{syncShortLabel}</span>
           </button>
         </div>
+        <span className="sr-only" role="status" aria-live="polite">{syncStatusLabel}</span>
       </header>
 
       <main className="main-content">
         {spacesOpen && createPortal(
-          <div className="spaces-modal-backdrop" onMouseDown={(event) => {
+          <div className="spaces-modal-backdrop" data-accent={household.themeAccent ?? 'cyan'} onMouseDown={(event) => {
             if (event.target === event.currentTarget) closeSpaces();
           }}>
-            <section className="spaces-modal card" role="dialog" aria-modal="true" aria-labelledby="spaces-title">
+            <section className="spaces-modal" role="dialog" aria-modal="true" aria-labelledby="spaces-title">
+              <span className="sheet-handle" aria-hidden="true" />
               <div className="row-between">
                 <h2 id="spaces-title">Your Spaces</h2>
                 <button
                   type="button"
+                  className="icon-btn"
                   onClick={closeSpaces}
                   aria-label="Close Spaces"
-                >×</button>
+                ><IconClose /></button>
               </div>
               <div className="space-list">
                 {spaces.map((space) => (
@@ -1068,6 +1255,8 @@ function MainApp({ session, onSignOut }: MainAppProps) {
                     <button
                       type="button"
                       className={`space-select ${space.id === activeSpaceId ? 'selected' : ''}`}
+                      data-accent={space.accent}
+                      aria-current={space.id === activeSpaceId ? 'true' : undefined}
                       onClick={() => void switchSpace(space.id)}
                     >
                       <span className={`space-color ${space.accent}`} />
@@ -1153,7 +1342,7 @@ function MainApp({ session, onSignOut }: MainAppProps) {
                 className="space-manage-sync"
                 onClick={() => {
                   closeSpaces();
-                  setActiveTab('settings');
+                  navigate('settings');
                 }}
               >
                 Manage Live Sync
@@ -1180,23 +1369,25 @@ function MainApp({ session, onSignOut }: MainAppProps) {
           document.body,
         )}
         {joinPrompt && createPortal(
-          <div className="spaces-modal-backdrop" onMouseDown={(event) => {
+          <div className="spaces-modal-backdrop" data-accent={household.themeAccent ?? 'cyan'} onMouseDown={(event) => {
             if (event.target === event.currentTarget && !joinBusy) setJoinPrompt(null);
           }}>
             <section
-              className="spaces-modal card"
+              className="spaces-modal"
               role="dialog"
               aria-modal="true"
               aria-labelledby="join-room-title"
             >
+              <span className="sheet-handle" aria-hidden="true" />
               <div className="row-between">
                 <h2 id="join-room-title">Join Shared Household Room</h2>
                 <button
                   type="button"
+                  className="icon-btn"
                   disabled={joinBusy}
                   onClick={() => setJoinPrompt(null)}
                   aria-label="Close join dialog"
-                >×</button>
+                ><IconClose /></button>
               </div>
               <p className="tx-sub">Join this room to collaborate on its shared expense ledger.</p>
               <div className="form-group">
@@ -1342,24 +1533,33 @@ function MainApp({ session, onSignOut }: MainAppProps) {
             </button>
           </div>
         )}
+        <div key={activeTab} className={VIEW_CLASS}>
         {!snapshot && activeTab === 'overview' && (
-          <section>
+          <section className="home">
             <div className="welcome-greeting">
-              <h2>{timeGreeting}{userName ? `, ${userName}` : ''}</h2>
+              <h2>
+                <span className="greet-line">{timeGreeting},</span>
+                <span className="greet-name">{userName}.</span>
+              </h2>
             </div>
+
             <div className="filter-pill-bar">
-              <div className="period-filter" role="group" aria-label="Spending period">
-                <div className="segmented-control">
-                  {(['all', 'month', 'week'] as const).map((value) => (
-                    <button
-                      key={value}
-                      type="button"
-                      className={`segment-btn ${periodFilter === value ? 'active' : ''}`}
-                      onClick={() => setPeriodFilter(value)}
-                    >{value.charAt(0).toUpperCase() + value.slice(1)}</button>
-                  ))}
-                </div>
-                <span className="segment-thumb" style={{ left: periodFilter === 'all' ? 0 : periodFilter === 'month' ? 33.33 : 66.66 }} />
+              <div
+                className="segmented period-filter"
+                role="group"
+                aria-label="Spending period"
+                style={{ '--n': 3, '--i': periodIndex } as CSSProperties}
+              >
+                <span className="seg-thumb" aria-hidden="true" />
+                {periodOptions.map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={`seg-btn ${periodFilter === value ? 'active' : ''}`}
+                    aria-pressed={periodFilter === value}
+                    onClick={() => setPeriodFilter(value)}
+                  >{value.charAt(0).toUpperCase() + value.slice(1)}</button>
+                ))}
               </div>
               <button type="button" className="report-button" onClick={() => {
                 try {
@@ -1367,306 +1567,161 @@ function MainApp({ session, onSignOut }: MainAppProps) {
                 } catch (error) {
                   setStorageError(getErrorMessage(error));
                 }
-              }}>📄 PDF Report</button>
-            </div>
-            {/* Cyan Gradient Hero Card */}
-            <div className="hero-card">
-              <div className="hero-label">
-                <span>{hasMonthlyBudget
-                  ? 'Remaining Monthly Wallet'
-                  : periodFilter === 'all'
-                    ? 'Total Household Spending'
-                    : periodFilter === 'month'
-                      ? 'This Month'
-                      : 'This Week'}</span>
-                <span>{filteredExpenses.length} Bills</span>
-              </div>
-              <div className="hero-card">
-                <div className="hero-label">
-                  <span>{hasMonthlyBudget
-                    ? 'Remaining Monthly Wallet'
-                    : periodFilter === 'all'
-                      ? 'Total Household Spending'
-                      : periodFilter === 'month'
-                        ? 'This Month'
-                        : 'This Week'}</span>
-                  <span>{filteredExpenses.length} Bills</span>
-                </div>
-                <div className="hero-amount">
-                  {heroParts.whole}
-                  <span className="cents-part">{heroParts.decimals}</span>
-                </div>
-                {hasMonthlyBudget ? (
-                  <div className="hero-budget">
-                    <div
-                      className="hero-budget-track"
-                      role="progressbar"
-                      aria-label="Monthly household budget spent"
-                      aria-valuemin={0}
-                      aria-valuemax={monthlyBudgetCents}
-                      aria-valuenow={Math.min(currentMonthSpendingCents, monthlyBudgetCents)}
-                    >
-                      <div
-                        className="hero-budget-fill"
-                        style={{ width: `${budgetSpentPercent}%` }}
-                      />
-                    </div>
-                    <p className="hero-sub">
-                      Spent {formatMoney(currentMonthSpendingCents)} of {formatMoney(monthlyBudgetCents)} limit
-                    </p>
-                  </div>
-                ) : (
-                  <p className="hero-sub">
-                    {suggestedTransfers.length === 0
-                      ? 'All housemate balances are settled'
-                      : `${suggestedTransfers.length} suggested transfer(s) to settle up`}
-                  </p>
-                )}
-                <div className="hero-actions">
-                  <button
-                    type="button"
-                    className="dock-fab primary"
-                    aria-label="Add Expense"
-                    onClick={() => setActiveTab('expenses')}
-                  >
-                    +
-                  </button>
-                  <button
-                    type="button"
-                    className="dock-item"
-                    onClick={() => setActiveTab('repayments')}
-                  >
-                    ↗ Settle Up
-                  </button>
-                </div>
-              </div>
+              }}><IconDoc /> PDF</button>
             </div>
 
-            {/* Split Summary Bar (dark navy) */}
+            <section className="hero-card" aria-label="Spending summary">
+              <div className="hero-label">
+                <span>{hasMonthlyBudget
+                  ? 'Remaining monthly wallet'
+                  : periodFilter === 'all'
+                    ? 'Total household spending'
+                    : periodFilter === 'month'
+                      ? 'This month'
+                      : 'This week'}</span>
+                <span className="pill">
+                  {filteredExpenses.length} {filteredExpenses.length === 1 ? 'bill' : 'bills'}
+                </span>
+              </div>
+              <div className="hero-amount money">
+                <AnimatedMoney cents={heroCents} />
+              </div>
+              {hasMonthlyBudget ? (
+                <div className="hero-budget">
+                  <div
+                    className="hero-budget-track"
+                    role="progressbar"
+                    aria-label="Monthly household budget spent"
+                    aria-valuemin={0}
+                    aria-valuemax={monthlyBudgetCents}
+                    aria-valuenow={Math.min(currentMonthSpendingCents, monthlyBudgetCents)}
+                  >
+                    <div
+                      className={`hero-budget-fill ${budgetState}`}
+                      style={{ transform: `scaleX(${budgetSpentPercent / 100})` }}
+                    />
+                  </div>
+                  <p className="hero-sub">
+                    <span className={`budget-flag ${budgetState}`}>
+                      <span aria-hidden="true">{budgetState === 'ok' ? '✓' : budgetState === 'near' ? '!' : '✕'}</span>{' '}
+                      {budgetStateLabel}
+                    </span>
+                    Spent {formatMoney(currentMonthSpendingCents)} of {formatMoney(monthlyBudgetCents)} limit
+                  </p>
+                </div>
+              ) : (
+                <p className="hero-sub">
+                  {suggestedTransfers.length === 0
+                    ? 'All housemate balances are settled'
+                    : `${suggestedTransfers.length} suggested transfer(s) to settle up`}
+                </p>
+              )}
+              <div className="hero-actions">
+                <button
+                  type="button"
+                  className="hero-add"
+                  aria-label="Add expense"
+                  onClick={() => navigate('expenses')}
+                ><IconPlus /></button>
+                <button
+                  type="button"
+                  className="hero-settle"
+                  onClick={() => navigate('repayments')}
+                >
+                  <span>Settle up</span>
+                  <span className="hero-settle-icon" aria-hidden="true"><IconArrow /></span>
+                </button>
+              </div>
+            </section>
+
             <div className="split-summary-bar">
               <div className="summary-metric">
                 <span className="metric-label">
-                  <span className="arrow-up" aria-hidden="true">
-                    ↑
-                  </span>{' '}
-                  Total Settled
+                  <span className="arrow-up" aria-hidden="true">↑</span> Total settled
                 </span>
-                <span className="metric-value">
-                  {formatMoney(totalRepaidCents)}
-                </span>
+                <span className="metric-value money">{formatMoney(totalRepaidCents)}</span>
               </div>
-              <div
-                className="summary-divider"
-                role="separator"
-                aria-hidden="true"
-              />
-              <div className="summary-metric" style={{ textAlign: 'right' }}>
-                <span className="metric-label" style={{ justifyContent: 'flex-end' }}>
-                  <span className="arrow-down" aria-hidden="true">
-                    ↓
-                  </span>{' '}
-                  Unsettled
+              <div className="summary-divider" role="separator" aria-hidden="true" />
+              <div className="summary-metric summary-metric-end">
+                <span className="metric-label">
+                  <span className="arrow-down" aria-hidden="true">↓</span> Unsettled
                 </span>
-                <span className="metric-value">
-                  {formatMoney(totalUnsettledCents)}
-                </span>
+                <span className="metric-value money">{formatMoney(totalUnsettledCents)}</span>
               </div>
             </div>
 
-            {/* 2-Column Member Balances Grid ("Accounts" style) */}
-            <div className="section-head">
-              <h2>Housemate Balances</h2>
-              <button
-                type="button"
-                className="link-btn"
-                onClick={() => setActiveTab('settings')}
-              >
-                Manage ›
-              </button>
-            </div>
-
-            {!hasMembers ? (
-              <div className="empty-state">
-                <p>No housemates added yet.</p>
-                <button
-                  type="button"
-                  className="primary"
-                  onClick={() => setActiveTab('settings')}
-                >
-                  + Add Housemates
-                </button>
-              </div>
-            ) : (
-              <div className="accounts-grid">
-                {memberBalances.map((b) => {
-                  const statusClass =
-                    b.balanceCents > 0
-                      ? 'pos'
-                      : b.balanceCents < 0
-                        ? 'neg'
-                        : 'neutral';
-                  const pctOfTotal =
-                    allTimeSpendingCents > 0
-                      ? Math.round((b.paidCents / allTimeSpendingCents) * 100)
-                      : 0;
-                  return (
-                    <div key={b.memberId} className="account-card">
-                      <div className={`account-icon ${statusClass}`}>
-                        {b.name.charAt(0).toUpperCase()}
-                      </div>
-                      <div className="account-name">{b.name}</div>
-                      <div
-                        className={`account-balance ${
-                          b.balanceCents > 0
-                            ? 'amount-pos'
-                            : b.balanceCents < 0
-                              ? 'amount-neg'
-                              : ''
-                        }`}
-                      >
-                        {b.balanceCents > 0
-                          ? `+${formatMoney(b.balanceCents)}`
-                          : formatMoney(b.balanceCents)}
-                      </div>
-                      <div className="account-meta">
-                        Paid {formatMoney(b.paidCents)}
-                      </div>
-                      <div className="progress-track">
-                        <div
-                          className="progress-fill"
-                          style={{ width: `${pctOfTotal}%` }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Category Breakdown Cards */}
             {sortedCategories.length > 0 && (
               <>
                 <div className="section-head">
-                  <h2>Spending by Category</h2>
+                  <h2>Spending by category</h2>
                 </div>
-                <div className="category-scroll">
-                  {sortedCategories.map(([cat, cents], idx) => (
-                    <div
-                      key={cat}
-                      className="category-card"
-                      style={{
-                        background:
-                          CATEGORY_COLORS[cat] ?? '#6B7280',
-                      }}
-                    >
-                      <span className="cat-rank">{idx + 1}</span>
-                      <div className="cat-name">{cat}</div>
-                      <div className="cat-amount">{formatMoney(cents)}</div>
-                      {household.categoryBudgetsCents?.[cat] !== undefined && household.categoryBudgetsCents[cat] > 0 && (
-                        <div className="budget-meter">
-                          {(() => {
-                            const percentage = Math.round(((monthCategoryTotals.get(cat) ?? 0) / household.categoryBudgetsCents[cat]) * 100);
-                            return <>
-                              <span>{percentage}% of monthly cap</span>
-                              <span className={`budget-track ${percentage >= 100 ? 'over' : percentage >= 80 ? 'near' : ''}`}>
-                                <span style={{ width: `${Math.min(percentage, 100)}%` }} />
-                              </span>
-                            </>;
-                          })()}
+                <div className="block-stack">
+                  {sortedCategories.map(([cat, cents], idx) => {
+                    const cap = household.categoryBudgetsCents?.[cat];
+                    const hasCap = cap !== undefined && cap > 0;
+                    const percentage = hasCap
+                      ? Math.round(((monthCategoryTotals.get(cat) ?? 0) / cap) * 100)
+                      : 0;
+                    const capState = percentage >= 100 ? 'over' : percentage >= 80 ? 'near' : 'ok';
+                    const billCount = categoryCounts.get(cat) ?? 0;
+                    const share = totalSpendingCents > 0
+                      ? Math.round((cents / totalSpendingCents) * 100)
+                      : 0;
+                    return (
+                      <article
+                        key={cat}
+                        className="category-card"
+                        data-block={categoryBlock(cat)}
+                        style={{ '--i': Math.min(idx, 7), zIndex: idx + 1 } as CSSProperties}
+                      >
+                        <div className="tag-row">
+                          <span className="pill">{billCount} {billCount === 1 ? 'bill' : 'bills'}</span>
+                          <span className="pill">{share}% of spend</span>
                         </div>
-                      )}
-                    </div>
-                  ))}
+                        <h3 className="cat-name">{cat}</h3>
+                        <div className="cat-amount money">{formatMoney(cents)}</div>
+                        {hasCap && (
+                          <div className="budget-meter">
+                            <div className="budget-meter-head">
+                              <span>{percentage}% of monthly cap</span>
+                              {capState !== 'ok' && (
+                                <span className={`budget-flag ${capState}`}>
+                                  <span aria-hidden="true">{capState === 'over' ? '✕' : '!'}</span>{' '}
+                                  {capState === 'over' ? 'Over cap' : 'Near cap'}
+                                </span>
+                              )}
+                            </div>
+                            <span className={`budget-track ${capState === 'ok' ? '' : capState}`}>
+                              <span style={{ transform: `scaleX(${Math.min(percentage, 100) / 100})` }} />
+                            </span>
+                          </div>
+                        )}
+                      </article>
+                    );
+                  })}
                 </div>
               </>
             )}
 
-            <details className="card report-preview">
-              <summary>Weekly &amp; Monthly Breakdown</summary>
-              <h3>Recent Weeks</h3>
-              {reportSummaries.weekly.slice(0, 4).map((row) => (
-                <div className="row-between report-row" key={row.period}>
-                  <span>{row.period}<small>{row.billCount} bills · {row.topCategory}</small></span>
-                  <strong>{formatMoney(row.totalCents)}</strong>
-                </div>
-              ))}
-              <h3>Recent Months</h3>
-              {reportSummaries.monthly.slice(0, 3).map((row) => (
-                <div className="row-between report-row" key={row.period}>
-                  <span>{row.period}<small>{row.billCount} bills</small></span>
-                  <strong>{formatMoney(row.totalCents)}</strong>
-                </div>
-              ))}
-            </details>
-
-            {/* Suggested Repayments List ("Recent Transactions" style) */}
             <div className="section-head">
-              <h2>Suggested Settlements</h2>
-              <button
-                type="button"
-                className="link-btn"
-                onClick={() => setActiveTab('repayments')}
-              >
-                View All ›
+              <h2>Recent bills</h2>
+              <button type="button" className="link-btn" onClick={() => navigate('expenses')}>
+                See all ›
               </button>
             </div>
-
-            {suggestedTransfers.length === 0 ? (
-              <div className="empty-state">
-                All settled up! Every housemate is at LKR 0.00.
-              </div>
-            ) : (
-              <div className="tx-list">
-                {suggestedTransfers.map((t) => (
-                  <div key={`${t.fromId}-${t.toId}`} className="tx-row">
-                    <div className="tx-left">
-                      <div
-                        className="tx-avatar"
-                        style={{
-                          background: 'var(--negative-bg)',
-                          color: 'var(--negative)',
-                        }}
-                      >
-                        ↗
-                      </div>
-                      <div className="tx-info">
-                        <p className="tx-title">
-                          {t.fromName} → {t.toName}
-                        </p>
-                        <div className="tx-sub">Suggested settlement</div>
-                      </div>
-                    </div>
-                    <div className="tx-right">
-                      <div className="amount-pos">
-                        {formatMoney(t.amountCents)}
-                      </div>
-                      <div className="tx-sub">Pending</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Recent Expenses Preview */}
-            <div className="section-head">
-              <h2>Recent Bills</h2>
-              <button
-                type="button"
-                className="link-btn"
-                onClick={() => setActiveTab('expenses')}
-              >
-                See All ›
-              </button>
-            </div>
-
             {household.expenses.length === 0 ? (
               <div className="empty-state">No expenses recorded yet.</div>
             ) : (
               <div className="tx-list">
-                {household.expenses.slice(0, 3).map((exp) => (
-                  <div key={exp.id} className="tx-row">
+                {household.expenses.slice(0, 3).map((exp, idx) => (
+                  <div
+                    key={exp.id}
+                    className="tx-row"
+                    data-block={categoryBlock(exp.category)}
+                    style={{ '--i': idx } as CSSProperties}
+                  >
                     <div className="tx-left">
-                      <div className="tx-avatar">
+                      <div className="tx-avatar" aria-hidden="true">
                         {exp.title.charAt(0).toUpperCase()}
                       </div>
                       <div className="tx-info">
@@ -1677,15 +1732,120 @@ function MainApp({ session, onSignOut }: MainAppProps) {
                       </div>
                     </div>
                     <div className="tx-right">
-                      <div style={{ fontWeight: 800 }}>
-                        {formatMoney(exp.amountCents)}
-                      </div>
+                      <div className="tx-amount money">{formatMoney(exp.amountCents)}</div>
                       <div className="tx-sub">{exp.category}</div>
                     </div>
                   </div>
                 ))}
               </div>
             )}
+
+            <details className="report-preview">
+              <summary>Weekly &amp; monthly breakdown</summary>
+              <h3>Recent weeks</h3>
+              {reportSummaries.weekly.slice(0, 4).map((row) => (
+                <div className="row-between report-row" key={row.period}>
+                  <span>{row.period}<small>{row.billCount} bills · {row.topCategory}</small></span>
+                  <strong className="money">{formatMoney(row.totalCents)}</strong>
+                </div>
+              ))}
+              <h3>Recent months</h3>
+              {reportSummaries.monthly.slice(0, 3).map((row) => (
+                <div className="row-between report-row" key={row.period}>
+                  <span>{row.period}<small>{row.billCount} bills</small></span>
+                  <strong className="money">{formatMoney(row.totalCents)}</strong>
+                </div>
+              ))}
+            </details>
+
+            <section className="dark-sheet" aria-label="Balances and settlements">
+              <div className="section-head">
+                <h2>Housemate balances</h2>
+                <button type="button" className="link-btn" onClick={() => navigate('settings')}>
+                  Manage ›
+                </button>
+              </div>
+              {!hasMembers ? (
+                <div className="empty-state">
+                  <p>No housemates added yet.</p>
+                  <button type="button" className="primary" onClick={() => navigate('settings')}>
+                    + Add housemates
+                  </button>
+                </div>
+              ) : (
+                <div className="accounts-grid">
+                  {memberBalances.map((b, idx) => {
+                    const statusClass =
+                      b.balanceCents > 0 ? 'pos' : b.balanceCents < 0 ? 'neg' : 'neutral';
+                    const pctOfTotal = allTimeSpendingCents > 0
+                      ? Math.round((b.paidCents / allTimeSpendingCents) * 100)
+                      : 0;
+                    return (
+                      <div
+                        key={b.memberId}
+                        className="account-card"
+                        style={{ '--i': Math.min(idx, 7) } as CSSProperties}
+                      >
+                        <div className={`account-icon ${statusClass}`} aria-hidden="true">
+                          {b.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="account-name">{b.name}</div>
+                        <div
+                          className={`account-balance money ${
+                            b.balanceCents > 0 ? 'amount-pos' : b.balanceCents < 0 ? 'amount-neg' : ''
+                          }`}
+                        >
+                          {b.balanceCents > 0
+                            ? `+${formatMoney(b.balanceCents)}`
+                            : formatMoney(b.balanceCents)}
+                        </div>
+                        <div className="account-meta">Paid {formatMoney(b.paidCents)}</div>
+                        <div className="progress-track">
+                          <div
+                            className="progress-fill"
+                            style={{ transform: `scaleX(${Math.min(pctOfTotal, 100) / 100})` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div className="section-head">
+                <h2>Suggested settlements</h2>
+                <button type="button" className="link-btn" onClick={() => navigate('repayments')}>
+                  View all ›
+                </button>
+              </div>
+              {suggestedTransfers.length === 0 ? (
+                <div className="empty-state">
+                  All settled up! Every housemate is at LKR 0.00.
+                </div>
+              ) : (
+                <div className="tx-list">
+                  {suggestedTransfers.map((t, idx) => (
+                    <div
+                      key={`${t.fromId}-${t.toId}`}
+                      className="tx-row"
+                      style={{ '--i': Math.min(idx, 7) } as CSSProperties}
+                    >
+                      <div className="tx-left">
+                        <div className="tx-avatar tx-avatar-neg" aria-hidden="true">↗</div>
+                        <div className="tx-info">
+                          <p className="tx-title">{t.fromName} → {t.toName}</p>
+                          <div className="tx-sub">Suggested settlement</div>
+                        </div>
+                      </div>
+                      <div className="tx-right">
+                        <div className="tx-amount money amount-pos">{formatMoney(t.amountCents)}</div>
+                        <div className="tx-sub">Pending</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
           </section>
         )}
 
@@ -1695,7 +1855,7 @@ function MainApp({ session, onSignOut }: MainAppProps) {
             household={household}
             onUpdateHousehold={commitHousehold}
             isSaving={isSaving}
-            onGoToSettings={() => setActiveTab('settings')}
+            onGoToSettings={() => navigate('settings')}
           />
         )}
 
@@ -1734,72 +1894,71 @@ function MainApp({ session, onSignOut }: MainAppProps) {
             isSaving={isSaving}
           />
         )}
+        </div>
       </main>
 
-      {/* Floating Neo-Bank Bottom Dock Navigation */}
-      {!snapshot && <div className="bottom-dock-wrap">
-        <nav className="bottom-dock" aria-label="Primary navigation">
-          <button
-            type="button"
-            className="dock-item"
-            aria-current={activeTab === 'overview' ? 'page' : undefined}
-            onClick={() => setActiveTab('overview')}
-          >
-            <span className="dock-icon" aria-hidden="true">
-              🏠
-            </span>
-            <span>Home</span>
-          </button>
-
-          <button
-            type="button"
-            className="dock-item"
-            aria-current={activeTab === 'expenses' ? 'page' : undefined}
-            onClick={() => setActiveTab('expenses')}
-          >
-            <span className="dock-icon" aria-hidden="true">
-              🧾
-            </span>
-            <span>Bills</span>
-          </button>
-
-          <button
-            type="button"
-            className="dock-fab center-add-btn"
-            aria-label="Add Expense"
-            onClick={() => setActiveTab('expenses')}
-          >
-            +
-          </button>
-
-          <button
-            type="button"
-            className="dock-item"
-            aria-current={activeTab === 'needs' ? 'page' : undefined}
-            onClick={() => setActiveTab('needs')}
-          >
-            <span className="dock-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none">
-                <path d="M7 3.75h10a2 2 0 0 1 2 2v14.5H5V5.75a2 2 0 0 1 2-2Z" />
-                <path d="m8 10 1.5 1.5L12 9m2 1h3m-9 5 1.5 1.5L12 14m2 1h3" />
-              </svg>
-            </span>
-            <span>List</span>
-          </button>
-
-          <button
-            type="button"
-            className="dock-item"
-            aria-current={activeTab === 'settings' ? 'page' : undefined}
-            onClick={() => setActiveTab('settings')}
-          >
-            <span className="dock-icon" aria-hidden="true">
-              ⚙️
-            </span>
-            <span>Settings</span>
-          </button>
-        </nav>
-      </div>}
+      {/* Floating bottom dock */}
+      {!snapshot && (() => {
+        const dockIndex = { overview: 0, expenses: 1, repayments: -1, needs: 3, settings: 4 }[activeTab];
+        return (
+          <div className={`bottom-dock-wrap ${dockHidden ? 'is-hidden' : ''}`}>
+            <nav
+              className="bottom-dock"
+              aria-label="Primary navigation"
+              style={{ '--i': Math.max(dockIndex, 0) } as CSSProperties}
+            >
+              <span
+                className={`dock-indicator ${dockIndex < 0 ? 'none' : ''}`}
+                aria-hidden="true"
+              />
+              <button
+                type="button"
+                className="dock-item"
+                aria-current={activeTab === 'overview' ? 'page' : undefined}
+                onClick={() => navigate('overview')}
+              >
+                <span className="dock-icon"><IconHome /></span>
+                <span>Home</span>
+              </button>
+              <button
+                type="button"
+                className="dock-item"
+                aria-current={activeTab === 'expenses' ? 'page' : undefined}
+                onClick={() => navigate('expenses')}
+              >
+                <span className="dock-icon"><IconBills /></span>
+                <span>Bills</span>
+              </button>
+              <button
+                type="button"
+                className="dock-fab center-add-btn"
+                aria-label="Add expense"
+                onClick={() => navigate('expenses')}
+              >
+                <IconPlus />
+              </button>
+              <button
+                type="button"
+                className="dock-item"
+                aria-current={activeTab === 'needs' ? 'page' : undefined}
+                onClick={() => navigate('needs')}
+              >
+                <span className="dock-icon"><IconList /></span>
+                <span>List</span>
+              </button>
+              <button
+                type="button"
+                className="dock-item"
+                aria-current={activeTab === 'settings' ? 'page' : undefined}
+                onClick={() => navigate('settings')}
+              >
+                <span className="dock-icon"><IconSettings /></span>
+                <span>Settings</span>
+              </button>
+            </nav>
+          </div>
+        );
+      })()}
     </div>
   );
 }

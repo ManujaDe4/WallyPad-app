@@ -1,5 +1,5 @@
+import type { CSSProperties, FormEvent } from 'react';
 import { useState } from 'react';
-import type { FormEvent } from 'react';
 import { getSupabaseClient } from '../lib/cloudSync';
 
 type Props = {
@@ -69,20 +69,49 @@ export default function AuthScreen({
   };
 
   return (
-    <main className="auth-screen">
-      <section className="auth-card" aria-labelledby="auth-title">
-        <div className="auth-brand" aria-label="WallyPad">
-          <span className="auth-brand-mark" aria-hidden="true">W</span>
-          <span>WallyPad</span>
-        </div>
-        <h1 id="auth-title">{isSignUp ? 'Create your account' : 'Welcome back'}</h1>
-        <p className="auth-subtitle">
+    <main className="auth-screen" aria-label="WallyPad sign-in">
+      {/* Large two-line hero headline */}
+      <div className="auth-hero">
+        <h1 className="auth-headline" id="auth-title">
+          <span className="auth-line-1">{isSignUp ? 'CREATE' : 'WELCOME'}</span>
+          <span className="auth-line-2">{isSignUp ? 'YOUR ACCOUNT.' : 'BACK.'}</span>
+        </h1>
+        <p className="auth-sub">
           {isSignUp
             ? 'A better way to keep your household in balance.'
             : 'Sign in to continue to your household.'}
         </p>
+      </div>
 
-        <form className="auth-form" onSubmit={(event) => void handleSubmit(event)}>
+      {/* Mode toggle — segmented pill control */}
+      <div
+        className="segmented auth-mode-toggle"
+        role="group"
+        aria-label="Authentication mode"
+        style={{ '--n': 2, '--i': isSignUp ? 1 : 0 } as CSSProperties}
+      >
+        <span className="seg-thumb" aria-hidden="true" />
+        <button
+          type="button"
+          className={`seg-btn ${!isSignUp ? 'active' : ''}`}
+          aria-pressed={!isSignUp}
+          onClick={() => switchMode(false)}
+        >
+          Sign In
+        </button>
+        <button
+          type="button"
+          className={`seg-btn ${isSignUp ? 'active' : ''}`}
+          aria-pressed={isSignUp}
+          onClick={() => switchMode(true)}
+        >
+          Create Account
+        </button>
+      </div>
+
+      {/* Auth form card */}
+      <section className="auth-form-card" aria-labelledby="auth-title">
+        <form onSubmit={(event) => void handleSubmit(event)} noValidate>
           {isSignUp && (
             <div className="form-group">
               <label htmlFor="auth-full-name">Full Name</label>
@@ -94,6 +123,7 @@ export default function AuthScreen({
                 required
                 value={fullName}
                 onChange={(event) => setFullName(event.target.value)}
+                placeholder="e.g., Manuja Perera"
               />
             </div>
           )}
@@ -106,6 +136,7 @@ export default function AuthScreen({
               required
               value={email}
               onChange={(event) => setEmail(event.target.value)}
+              placeholder="you@example.com"
             />
           </div>
           <div className="form-group">
@@ -117,37 +148,44 @@ export default function AuthScreen({
               required
               value={password}
               onChange={(event) => setPassword(event.target.value)}
+              placeholder="••••••••"
             />
           </div>
+
+          {/* Errors & messages styled as color-block cards */}
           {(error || startupError) && (
-            <p className="auth-error" role="alert">
+            <div className="auth-message-card auth-error" role="alert">
               {error || startupError}
-            </p>
+            </div>
           )}
           {message && (
-            <p className="auth-message" role="status">
+            <div className="auth-message-card auth-success" role="status">
               {message}
-            </p>
+            </div>
           )}
-          <button type="submit" className="primary auth-submit" disabled={isSubmitting}>
-            {isSubmitting
-              ? 'Please wait…'
-              : isSignUp
-                ? 'Create Account'
-                : 'Sign In'}
+
+          {/* Full-width primary button with circular arrow glyph */}
+          <button
+            type="submit"
+            className="auth-submit-btn"
+            disabled={isSubmitting}
+          >
+            <span>
+              {isSubmitting
+                ? 'Please wait…'
+                : isSignUp
+                  ? 'Create Account'
+                  : 'Sign In'}
+            </span>
+            {!isSubmitting && (
+              <span className="auth-submit-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" width={22} height={22}>
+                  <path d="M7 17 17 7M8 7h9v9" />
+                </svg>
+              </span>
+            )}
           </button>
         </form>
-
-        <p className="auth-mode-prompt">
-          {isSignUp ? 'Already have an account?' : 'New to WallyPad?'}
-          <button
-            type="button"
-            className="auth-mode-toggle"
-            onClick={() => switchMode(!isSignUp)}
-          >
-            {isSignUp ? 'Sign In' : 'Create Account'}
-          </button>
-        </p>
       </section>
     </main>
   );

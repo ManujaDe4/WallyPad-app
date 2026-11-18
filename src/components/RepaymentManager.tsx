@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { FormEvent } from 'react';
+import type { CSSProperties, FormEvent } from 'react';
 import type { Household, Repayment } from '../types';
 import { calculateBalances, suggestRepayments } from '../lib/balances';
 import { centsToInputString, formatMoney, parseMoney } from '../lib/money';
@@ -147,10 +147,11 @@ export default function RepaymentManager({
   };
 
   return (
-    <section className="stack">
-      <div className="card share-tools">
-        <div className="share-actions">
-          <button type="button" onClick={() => void copyWhatsAppSummary()}>
+    <section>
+      {/* Share / Settlement actions */}
+      <div className="card">
+        <div className="row-between">
+          <button type="button" className="ghost" onClick={() => void copyWhatsAppSummary()}>
             📋 Copy for WhatsApp
           </button>
           <button type="button" className="primary" onClick={() => {
@@ -158,15 +159,15 @@ export default function RepaymentManager({
             setCopyState('');
             setShareError('');
           }}>
-            🔗 {shareOpen ? 'Hide Snapshot' : 'Share Snapshot / QR'}
+            🔗 {shareOpen ? 'Hide Snapshot' : 'Share Snapshot'}
           </button>
         </div>
         {copyState && <p className="amount-pos" role="status">{copyState}</p>}
         {shareError && <p className="amount-neg" role="alert">{shareError}</p>}
         {shareOpen && (
           <div className="share-snapshot">
-            <div className="share-card-preview">
-              <svg viewBox="0 0 96 96" role="img" aria-label="WallyPad settlement share badge">
+            <div className="row-between">
+              <svg viewBox="0 0 96 96" role="img" aria-label="WallyPad settlement share badge" style={{ width: 64, height: 64, flexShrink: 0 }}>
                 <rect width="96" height="96" rx="18" fill="#e8f7f7" />
                 <path d="M25 31h22a10 10 0 0 1 0 20H39m10 14H27a10 10 0 0 1 0-20h8m10-7 7 7-7 7m-1 6-7 7 7 7" fill="none" stroke="#007d7b" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
                 <circle cx="70" cy="27" r="7" fill="#0099cc" />
@@ -174,27 +175,32 @@ export default function RepaymentManager({
               </svg>
               <div>
                 <strong>{household.name}</strong>
-                <small>Read-only settlement snapshot</small>
-                <small>{suggestions.length} suggested transfer(s)</small>
+                <small style={{ display: 'block', color: 'var(--muted)' }}>Read-only settlement snapshot</small>
+                <small style={{ display: 'block', color: 'var(--muted)' }}>{suggestions.length} suggested transfer(s)</small>
               </div>
             </div>
-            <label htmlFor="snapshot-url">Snapshot link</label>
-            <input id="snapshot-url" type="url" readOnly value={snapshotLink} onFocus={(event) => event.currentTarget.select()} />
+            <div className="form-group" style={{ marginTop: '1rem' }}>
+              <label htmlFor="snapshot-url">Snapshot link</label>
+              <input id="snapshot-url" type="url" readOnly value={snapshotLink} onFocus={(event) => event.currentTarget.select()} />
+            </div>
             <button type="button" className="primary" onClick={() => void copySnapshotLink()}>Copy snapshot link</button>
             <p className="tx-sub">Anyone with this link can view the shared ledger snapshot. It does not grant edit access.</p>
           </div>
         )}
       </div>
+
+      {/* Suggested Settlements */}
       <div className="card">
         <h2>Suggested Settlements</h2>
         {suggestions.length === 0 ? (
-          <p className="empty-state">No repayments needed right now.</p>
+          <div className="empty-state">No repayments needed right now.</div>
         ) : (
           <div className="tx-list">
-            {suggestions.map((suggestion) => (
+            {suggestions.map((suggestion, index) => (
               <div
                 key={`${suggestion.fromId}-${suggestion.toId}`}
                 className="tx-row"
+                style={{ '--i': Math.min(index, 7) } as CSSProperties}
               >
                 <div className="tx-left">
                   <div className="tx-avatar" aria-hidden="true">
@@ -208,12 +214,13 @@ export default function RepaymentManager({
                   </div>
                 </div>
                 <div className="tx-right">
-                  <strong className="amount-pos">
+                  <strong className="tx-amount money amount-pos">
                     {formatMoney(suggestion.amountCents)}
                   </strong>
                   <div>
                     <button
                       type="button"
+                      className="primary"
                       disabled={isSaving}
                       onClick={() => handleQuickFill(suggestion)}
                     >
@@ -227,6 +234,7 @@ export default function RepaymentManager({
         )}
       </div>
 
+      {/* Record Repayment form */}
       <div className="card">
         <h2>Record Repayment</h2>
         {household.members.length < 2 ? (
@@ -314,14 +322,19 @@ export default function RepaymentManager({
         )}
       </div>
 
+      {/* Repayment History */}
       <div className="card">
         <h2>Repayment History</h2>
         {household.repayments.length === 0 ? (
-          <p className="empty-state">No repayments recorded yet.</p>
+          <div className="empty-state">No repayments recorded yet.</div>
         ) : (
           <div className="tx-list">
-            {household.repayments.map((repayment) => (
-              <div key={repayment.id} className="tx-row">
+            {household.repayments.map((repayment, index) => (
+              <div
+                key={repayment.id}
+                className="tx-row"
+                style={{ '--i': Math.min(index, 7) } as CSSProperties}
+              >
                 <div className="tx-left">
                   <div className="tx-avatar" aria-hidden="true">
                     ⇄
@@ -335,13 +348,13 @@ export default function RepaymentManager({
                   </div>
                 </div>
                 <div className="tx-right">
-                  <strong>{formatMoney(repayment.amountCents)}</strong>
+                  <strong className="tx-amount money">{formatMoney(repayment.amountCents)}</strong>
                   <div>
                     {confirmDeleteId === repayment.id ? (
                       <>
                         <button
                           type="button"
-                          className="danger"
+                          className="btn-danger"
                           disabled={isSaving}
                           onClick={() => void handleDelete(repayment.id)}
                         >
@@ -349,6 +362,7 @@ export default function RepaymentManager({
                         </button>{' '}
                         <button
                           type="button"
+                          className="ghost"
                           disabled={isSaving}
                           onClick={() => setConfirmDeleteId(null)}
                         >

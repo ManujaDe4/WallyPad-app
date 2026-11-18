@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { FormEvent } from 'react';
+import type { CSSProperties, FormEvent } from 'react';
 import type { Household } from '../types';
 import { centsToInputString, parseMoney } from '../lib/money';
 import { exportCsvReport, exportPdfReport } from '../lib/reports';
@@ -363,26 +363,32 @@ export default function HouseholdSettings({
   };
 
   return (
-    <div className="stack">
-      <section className="card profile-card" aria-label="User profile">
-        <div className="profile-avatar" aria-hidden="true">
+    <div>
+      <section className="card row-between" aria-label="User profile">
+        <div className="avatar-circle" aria-hidden="true">
           {profileName.charAt(0).toUpperCase() || 'U'}
         </div>
-        <div className="profile-details">
+        <div>
           <h2>{profileName}</h2>
-          <p>{profileEmail}</p>
+          <p className="tx-sub">{profileEmail}</p>
         </div>
       </section>
 
-      <section className="card theme-settings-card">
+      <section className="card">
         <div>
           <h2>App Theme</h2>
           <p className="tx-sub">Choose a comfortable appearance for WallyPad.</p>
         </div>
-        <div className="theme-toggle" role="group" aria-label="App theme">
+        <div
+          className="segmented"
+          role="group"
+          aria-label="App theme"
+          style={{ '--n': 2, '--i': theme === 'light' ? 0 : 1 } as CSSProperties}
+        >
+          <span className="seg-thumb" aria-hidden="true" />
           <button
             type="button"
-            className={theme === 'light' ? 'dock-item active' : 'dock-item'}
+            className={`seg-btn ${theme === 'light' ? 'active' : ''}`}
             aria-pressed={theme === 'light'}
             onClick={() => setTheme('light')}
           >
@@ -390,7 +396,7 @@ export default function HouseholdSettings({
           </button>
           <button
             type="button"
-            className={theme === 'dark' ? 'dock-item active' : 'dock-item'}
+            className={`seg-btn ${theme === 'dark' ? 'active' : ''}`}
             aria-pressed={theme === 'dark'}
             onClick={() => setTheme('dark')}
           >
@@ -399,7 +405,7 @@ export default function HouseholdSettings({
         </div>
       </section>
 
-      <section className="card cloud-sync-card">
+      <section className="card">
         <h2>Live Multi-Device Sync (Room Code)</h2>
         {!cloudConfigured && (
           <p className="tx-sub">
@@ -408,10 +414,10 @@ export default function HouseholdSettings({
         )}
         {household.syncRoomCode && household.syncPinHash ? (
           <>
-            <p className="row-between">
+            <div className="row-between">
               <span>Room Code</span>
-              <strong className="room-code">{household.syncRoomCode}</strong>
-            </p>
+              <strong className="pill">{household.syncRoomCode}</strong>
+            </div>
             <p className="tx-sub">
               {household.pendingSync
                 ? 'Changes are waiting to sync.'
@@ -431,10 +437,10 @@ export default function HouseholdSettings({
               />
             </div>
             <div className="export-actions">
-              <button type="button" disabled={!cloudConfigured} onClick={() => void handleCopyInvite()}>
+              <button type="button" className="ghost" disabled={!cloudConfigured} onClick={() => void handleCopyInvite()}>
                 📋 Copy WhatsApp Invite Link
               </button>
-              <button type="button" disabled={!cloudConfigured || cloudBusy} onClick={() => {
+              <button type="button" className="ghost" disabled={!cloudConfigured || cloudBusy} onClick={() => {
                 setCloudBusy(true);
                 void onSyncNow().then((synced) => {
                   setCloudMessage(synced ? 'Room synced.' : '');
@@ -445,16 +451,23 @@ export default function HouseholdSettings({
               }}>
                 🔄 Sync Now
               </button>
-              <button type="button" disabled={isSaving || cloudBusy} onClick={() => void handleDisconnectRoom()}>
+              <button type="button" className="ghost" disabled={isSaving || cloudBusy} onClick={() => void handleDisconnectRoom()}>
                 Disconnect Cloud Sync
               </button>
             </div>
           </>
         ) : (
           <>
-            <div className="export-actions">
+            <div
+              className="segmented"
+              role="group"
+              aria-label="Room sync setup"
+              style={{ '--n': 2, '--i': roomMode === 'create' ? 0 : 1 } as CSSProperties}
+            >
+              <span className="seg-thumb" aria-hidden="true" />
               <button
                 type="button"
+                className={`seg-btn ${roomMode === 'create' ? 'active' : ''}`}
                 aria-pressed={roomMode === 'create'}
                 onClick={() => setRoomMode('create')}
               >
@@ -462,6 +475,7 @@ export default function HouseholdSettings({
               </button>
               <button
                 type="button"
+                className={`seg-btn ${roomMode === 'join' ? 'active' : ''}`}
                 aria-pressed={roomMode === 'join'}
                 onClick={() => setRoomMode('join')}
               >
@@ -631,47 +645,51 @@ export default function HouseholdSettings({
         </div>
       ) : (
         <div className="tx-list">
-          {household.members.map((member) => {
+          {household.members.map((member, index) => {
             const referenced = isMemberReferenced(member.id);
             const isEditing = editingMemberId === member.id;
 
             return (
-              <div key={member.id} className="tx-row">
+              <div
+                key={member.id}
+                className="tx-row"
+                style={{ '--i': Math.min(index, 7) } as CSSProperties}
+              >
                 {isEditing ? (
                   <form
                     onSubmit={(e) => handleSaveRename(e, member.id)}
-                    className="stack"
+                    className="tx-left"
                     style={{ width: '100%' }}
                     noValidate
                   >
-                    <div
-                      className="form-group"
-                      style={{ marginBottom: 0 }}
-                    >
-                      <label htmlFor={`rename-${member.id}`}>
-                        Rename {member.name}
-                      </label>
-                      <input
-                        id={`rename-${member.id}`}
-                        type="text"
-                        value={editingName}
-                        onChange={(e) => {
-                          setEditingName(e.target.value);
-                          setEditError('');
-                        }}
-                      />
-                      {editError && (
-                        <small className="amount-neg" role="alert">
-                          {editError}
-                        </small>
-                      )}
+                    <div className="tx-info">
+                      <div className="form-group">
+                        <label htmlFor={`rename-${member.id}`}>
+                          Rename {member.name}
+                        </label>
+                        <input
+                          id={`rename-${member.id}`}
+                          type="text"
+                          value={editingName}
+                          onChange={(e) => {
+                            setEditingName(e.target.value);
+                            setEditError('');
+                          }}
+                        />
+                        {editError && (
+                          <small className="amount-neg" role="alert">
+                            {editError}
+                          </small>
+                        )}
+                      </div>
                     </div>
-                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <div className="tx-right">
                       <button type="submit" className="primary" disabled={isSaving}>
                         Save
                       </button>
                       <button
                         type="button"
+                        className="ghost"
                         disabled={isSaving}
                         onClick={() => {
                           setEditingMemberId(null);
@@ -698,9 +716,10 @@ export default function HouseholdSettings({
                       </div>
                     </div>
 
-                    <div style={{ display: 'flex', gap: '0.4rem' }}>
+                    <div className="tx-right">
                       <button
                         type="button"
+                        className="ghost"
                         disabled={isSaving}
                         onClick={() =>
                           startEditingMember(member.id, member.name)
@@ -711,12 +730,9 @@ export default function HouseholdSettings({
                       {(isAdmin || myMemberId === member.id) && (
                         <button
                           type="button"
+                          className="ghost"
                           disabled={isSaving || referenced}
                           onClick={() => void handleDeleteMember(member.id)}
-                          style={{
-                            opacity: referenced ? 0.45 : 1,
-                            cursor: referenced ? 'not-allowed' : 'pointer',
-                          }}
                         >
                           Delete
                         </button>
@@ -733,7 +749,7 @@ export default function HouseholdSettings({
       <section className="card">
         <h2>Monthly Category Budgets <span className="tx-sub">(Optional)</span></h2>
         <p className="tx-sub">Set monthly spending caps to track category utilization on Home.</p>
-        <div className="budget-input-grid">
+        <div>
           {BUDGET_CATEGORIES.map((category) => (
             <div className="form-group" key={category}>
               <label htmlFor={`budget-${category}`}>{category} (LKR)</label>
@@ -763,8 +779,8 @@ export default function HouseholdSettings({
 
       <section className="card">
         <h2>Export Reports</h2>
-        <div className="report-export-actions">
-          <button type="button" onClick={() => {
+        <div className="export-actions">
+          <button type="button" className="ghost" onClick={() => {
             setReportError('');
             try {
               exportPdfReport(household);
@@ -772,7 +788,7 @@ export default function HouseholdSettings({
               setReportError(error instanceof Error ? error.message : 'Could not open PDF report.');
             }
           }}>📄 Export Weekly &amp; Monthly PDF Report</button>
-          <button type="button" onClick={() => exportCsvReport(household)}>
+          <button type="button" className="ghost" onClick={() => exportCsvReport(household)}>
             📊 Export CSV Spreadsheet
           </button>
         </div>
@@ -784,9 +800,9 @@ export default function HouseholdSettings({
       </section>
 
       {isAdmin && (
-        <section className="card" style={{ marginTop: '0.5rem' }}>
+        <section className="card">
           <h2>Demo &amp; Reset Presets</h2>
-          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <div className="export-actions">
             <button
               type="button"
               disabled={isSaving}
@@ -810,10 +826,10 @@ export default function HouseholdSettings({
                   : 'Restore Demo Ledger'}{' '}
                 will replace the current household and its records. Continue?
               </p>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <div className="export-actions">
                 <button
                   type="button"
-                  className="danger"
+                  className="primary"
                   disabled={isSaving}
                   onClick={() => void confirmReplacement()}
                 >
@@ -821,6 +837,7 @@ export default function HouseholdSettings({
                 </button>
                 <button
                   type="button"
+                  className="ghost"
                   disabled={isSaving}
                   onClick={() => setPendingReplacement(null)}
                 >
@@ -832,7 +849,8 @@ export default function HouseholdSettings({
         </section>
       )}
 
-      <section className="profile-logout-section">
+      <section className="card">
+        <h2>Account</h2>
         {profileError && (
           <p className="amount-neg" role="alert">
             {profileError}
@@ -840,7 +858,7 @@ export default function HouseholdSettings({
         )}
         <button
           type="button"
-          className="profile-logout"
+          className="ghost"
           disabled={isSigningOut}
           onClick={() => void handleSignOut()}
         >
