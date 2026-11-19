@@ -54,7 +54,7 @@
     --dur-4: 520ms;
 
     --font-display: 'Anton', 'Bebas Neue', 'Arial Narrow', Impact, 'Helvetica Neue', sans-serif;
-    --font-body: 'Syne', 'Outfit', 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    --font-body: 'Plus Jakarta Sans', 'Outfit', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 
     /* Aliases kept so components that use older token names keep working */
     --bg-app: var(--bg);
@@ -122,8 +122,8 @@ html[data-theme='light'] { color-scheme: light; }
 }
 
 @font-face {
-    font-family: 'Syne';
-    src: url('/assets/fonts/Syne.woff2') format('woff2');
+    font-family: 'Plus Jakarta Sans';
+    src: url('/assets/fonts/PlusJakartaSans-Variable.woff2') format('woff2');
     font-weight: 400 800;
     font-style: normal;
     font-display: swap;
